@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	detectNumbering,
@@ -156,6 +156,8 @@ describe("helpers", () => {
 		expect(readTitle("no heading", "0001-x.md")).toBe("0001-x");
 	});
 	it("findGitRoot", () => {
-		expect(findGitRoot(new URL(".", import.meta.url).pathname)).toMatch(/adr-recorder$/);
+		// Any checkout folder name: compare against the repo root, not a fixed name.
+		const here = new URL(".", import.meta.url).pathname;
+		expect(findGitRoot(here)).toBe(resolve(here, "..", ".."));
 	});
 });
