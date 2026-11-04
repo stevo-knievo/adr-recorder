@@ -1,12 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Document, parseDocument } from "yaml";
+import { reviewOnExit, reviewReadyMessage, takeNewReviewReport } from "../core/auto-review.ts";
 import {
-	type Config,
-	decideEnablement,
-	loadConfig,
 	missingSettings,
 	REPO_CONFIG_FILE,
 	stateDir as stateDirFor,
@@ -15,17 +11,18 @@ import {
 import type { Classifier } from "../core/detect.ts";
 import { piSessionFromBranch } from "../core/harness/pi.ts";
 import { nodeSystem } from "../core/launch/system.ts";
-import { findGitRoot, hasAdrFolder, type Layout, resolveLayout } from "../core/layout.ts";
-import { type Note, noteId, readBacklog, writeNote } from "../core/notes.ts";
+import { hasAdrFolder } from "../core/layout.ts";
 import {
-	listReviewReports,
-	openNotes,
-	prepareReview,
-	REVIEW_CHILD_ENV,
-	REVIEW_MARKER,
-} from "../core/review.ts";
-import { startReview } from "../core/review-start.ts";
-import { type ExchangeResult, scanSession, tildify } from "../core/scan.ts";
+	loadProject,
+	type Project,
+	projectEnablement,
+	sessionNotes,
+	setRepoAdrDir,
+	statusReport,
+	writeManualNote,
+} from "../core/project.ts";
+import { prepareReview, REVIEW_CHILD_ENV, REVIEW_MARKER } from "../core/review.ts";
+import { type ExchangeResult, scanSession, summarizeResults, tildify } from "../core/scan.ts";
 import { statusText } from "../core/status.ts";
 import { toExchanges } from "../core/transcript.ts";
 import type { Session } from "../core/types.ts";
@@ -35,10 +32,7 @@ const KEY = "adr-recorder";
 const SHUTDOWN_WAIT_MS = 10_000;
 
 interface State {
-	root: string;
-	config: Config;
-	configErrors: string[];
-	layout: Layout;
+	project: Project;
 	sessionId: string;
 	/** /adr on (true), /adr off (false), or unset. Stored in the session. */
 	override?: boolean;
@@ -87,15 +81,10 @@ function readOverride(ctx: ExtensionContext): boolean | undefined {
 }
 
 function load(ctx: ExtensionContext): State {
-	const root = findGitRoot(ctx.cwd) ?? ctx.cwd;
-	const loaded = loadConfig({ home, env: process.env }, root);
 	const session = branchSession(ctx);
 	const exchanges = toExchanges(session.turns);
 	return {
-		root,
-		config: loaded.config,
-		configErrors: loaded.errors,
-		layout: resolveLayout(root, loaded.config.repo),
+		project: loadProject(ctx.cwd, configEnv()),
 		sessionId: session.id,
 		override: readOverride(ctx),
 		reviewChild:
@@ -107,22 +96,9 @@ function load(ctx: ExtensionContext): State {
 	};
 }
 
-function enablement(st: State) {
-	return decideEnablement({
-		cwd: st.root,
-		config: st.config,
-		hasAdrFolder: hasAdrFolder(st.layout),
-		sessionOverride: st.override,
-		reviewChild: st.reviewChild,
-	});
-}
-
-function sessionNotes(st: State) {
-	const prefix = `pi:${st.sessionId}:`;
-	return st.layout.folders
-		.flatMap((f) => readBacklog(st.root, f.backlog))
-		.filter((n) => n.id.startsWith(prefix));
-}
+const enablement = (st: State) =>
+	projectEnablement(st.project, { override: st.override, reviewChild: st.reviewChild });
+const notesOf = (st: State) => sessionNotes(st.project, "pi", st.sessionId);
 
 function warnOnce(st: State, ctx: ExtensionContext, key: string, msg: string) {
 	if (st.warned.has(key) || !ctx.hasUI) return;
@@ -132,18 +108,19 @@ function warnOnce(st: State, ctx: ExtensionContext, key: string, msg: string) {
 
 function getClassifier(st: State, ctx: ExtensionContext): Classifier | undefined {
 	if (st.classifier) return st.classifier;
-	const missing = missingSettings(st.config, { needEndpoint: false });
-	if (missing.length || !st.config.classifier_model) {
+	const { config } = st.project;
+	const missing = missingSettings(config, { needEndpoint: false });
+	if (missing.length || !config.classifier_model) {
 		warnOnce(
 			st,
 			ctx,
 			"config",
-			`ADR recorder: set ${missing.join(", ")} in ${userConfigPath({ home, env: process.env })}`,
+			`ADR recorder: set ${missing.join(", ")} in ${userConfigPath(configEnv())}`,
 		);
 		return undefined;
 	}
 	try {
-		st.classifier = createPiClassifier(ctx, st.config.classifier_model);
+		st.classifier = createPiClassifier(ctx, config.classifier_model);
 	} catch (e) {
 		warnOnce(st, ctx, "model", `ADR recorder: ${(e as Error).message}`);
 	}
@@ -154,7 +131,7 @@ function refreshStatus(st: State | undefined, ctx: ExtensionContext) {
 	if (!ctx.hasUI) return;
 	if (!st) return ctx.ui.setStatus(KEY, undefined);
 	const on = enablement(st).enabled;
-	ctx.ui.setStatus(KEY, statusText(on, on ? sessionNotes(st).length : 0));
+	ctx.ui.setStatus(KEY, statusText(on, on ? notesOf(st).length : 0));
 }
 
 function track<T>(st: State, p: Promise<T>): Promise<T> {
@@ -174,7 +151,7 @@ async function capture(
 	const seen = new Set(st.processed);
 	for (const ex of toExchanges(session.turns)) st.processed.add(ex.anchor);
 	const results = await scanSession(session, {
-		layout: st.layout,
+		layout: st.project.layout,
 		classifier,
 		filter: opts.all ? undefined : (ex) => !seen.has(ex.anchor),
 		home,
@@ -184,70 +161,10 @@ async function capture(
 	return results;
 }
 
-function writeRepoAdrDir(root: string, dir: string) {
-	const file = join(root, REPO_CONFIG_FILE);
-	const doc = existsSync(file) ? parseDocument(readFileSync(file, "utf8")) : undefined;
-	if (doc?.contents) {
-		doc.set("adr_dir", dir);
-		writeFileSync(file, doc.toString());
-	} else writeFileSync(file, new Document({ adr_dir: dir }).toString());
-}
-
-function seenFile() {
-	return join(stateDir(), "seen-reviews.json");
-}
-
-function launchedFile() {
-	return join(stateDir(), "launched-reviews.json");
-}
-
-function readJson<T>(file: string, fallback: T): T {
-	try {
-		return JSON.parse(readFileSync(file, "utf8")) as T;
-	} catch {
-		return fallback;
-	}
-}
-
-function writeJson(file: string, data: unknown) {
-	mkdirSync(dirname(file), { recursive: true });
-	writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
-}
-
 function notifyReviews(st: State, ctx: ExtensionContext) {
 	if (!ctx.hasUI || st.reviewChild) return;
-	const reports = listReviewReports(st.layout);
-	if (!reports.length) return;
-	const seen = readJson<Record<string, true>>(seenFile(), {});
-	const fresh = reports.filter((r) => !seen[join(st.root, r.file)]);
-	if (!fresh.length) return;
-	const latest = fresh[0];
-	if (latest)
-		ctx.ui.notify(`ADR review ready: ${latest.proposals} proposals (${latest.file})`, "info");
-	for (const r of fresh) seen[join(st.root, r.file)] = true;
-	writeJson(seenFile(), seen);
-}
-
-function statusReport(st: State): string {
-	const en = enablement(st);
-	const notes = sessionNotes(st);
-	const open = openNotes(st.layout).length;
-	const missing = missingSettings(st.config, { needEndpoint: false });
-	return [
-		`ADR recorder: ${en.enabled ? "on" : "off"} (${en.reason})`,
-		`adr_dir: ${st.layout.adrDir} (${st.layout.source}), backlog ${st.layout.backlogDir}`,
-		`notes this session: ${notes.length}, open in repo: ${open}`,
-		`models: classifier=${st.config.classifier_model ?? "-"} reviewer=${st.config.reviewer_model ?? "-"}`,
-		`auto_review: ${st.config.auto_review}`,
-		...(missing.length ? [`missing: ${missing.join(", ")}`] : []),
-		...st.configErrors.map((e) => `config error: ${e}`),
-	].join("\n");
-}
-
-function summarize(results: ExchangeResult[]): string {
-	const written = results.filter((r) => r.outcome === "written");
-	if (!written.length) return "ADR recorder: no new decisions found";
-	return `ADR recorder: ${written.length} note(s)\n${written.map((r) => `- ${r.file}`).join("\n")}`;
+	const report = takeNewReviewReport(st.project, stateDir());
+	if (report) ctx.ui.notify(reviewReadyMessage(report), "info");
 }
 
 const SUBCOMMANDS = ["on", "off", "status", "note", "scan", "review"];
@@ -292,32 +209,21 @@ export default function adrRecorder(pi: ExtensionAPI) {
 			]);
 		}
 		if (event.reason !== "quit" || s.reviewChild || !enablement(s).enabled) return;
-		if (s.config.auto_review === "off") return;
-		const open = sessionNotes(s).filter((n) => n.status === "open");
-		const reviewed = readJson<Record<string, string[]>>(launchedFile(), {});
-		const done = new Set(reviewed[s.sessionId] ?? []);
-		// Quit, resume, quit again: don't review the same notes twice.
-		if (!open.some((n) => !done.has(n.id))) return;
-		if (s.config.auto_review === "ask") {
-			if (!ctx.hasUI) return;
-			const ok = await ctx.ui.confirm("ADR review", "Start a review of the ADR backlog?", {
-				timeout: 15_000,
-			});
-			if (!ok) return;
-		}
 		try {
-			const started = await startReview({
-				layout: s.layout,
-				config: s.config,
+			await reviewOnExit({
+				project: s.project,
 				harness: "pi",
+				sessionId: s.sessionId,
 				sys: nodeSystem(),
 				home,
 				stateDir: stateDir(),
+				confirm: ctx.hasUI
+					? () =>
+							ctx.ui.confirm("ADR review", "Start a review of the ADR backlog?", {
+								timeout: 15_000,
+							})
+					: undefined,
 			});
-			if (started) {
-				reviewed[s.sessionId] = [...done, ...open.map((n) => n.id)];
-				writeJson(launchedFile(), reviewed);
-			}
 		} catch (e) {
 			if (ctx.hasUI) ctx.ui.notify(`ADR review not started: ${(e as Error).message}`, "warning");
 		}
@@ -338,20 +244,25 @@ export default function adrRecorder(pi: ExtensionAPI) {
 			};
 			switch (sub) {
 				case "status":
-					say(statusReport(s));
+					say(
+						statusReport(
+							s.project,
+							enablement(s),
+							{ harness: "pi", id: s.sessionId },
+							{ needEndpoint: false },
+						),
+					);
 					return;
 				case "on": {
-					if (!hasAdrFolder(s.layout) && !s.config.repo.adr_dir) {
+					if (!hasAdrFolder(s.project.layout) && !s.project.config.repo.adr_dir) {
 						let dir = "docs/adr";
 						if (ctx.hasUI) {
 							const answer = await ctx.ui.input("Where should ADRs live?", "docs/adr");
 							if (answer === undefined) return;
 							dir = answer.trim() || "docs/adr";
 						}
-						writeRepoAdrDir(s.root, dir);
-						const loaded = loadConfig({ home, env: process.env }, s.root);
-						s.config = loaded.config;
-						s.layout = resolveLayout(s.root, s.config.repo);
+						setRepoAdrDir(s.project.root, dir);
+						s.project = loadProject(s.project.root, configEnv());
 						say(`ADR folder set to ${dir} in ${REPO_CONFIG_FILE}`);
 					}
 					s.override = true;
@@ -367,46 +278,32 @@ export default function adrRecorder(pi: ExtensionAPI) {
 					return;
 				case "note": {
 					if (!rest) return say("Usage: /adr note <decision>", "warning");
-					const anchor = ctx.sessionManager.getLeafId() ?? "manual";
-					const now = new Date();
-					const note: Note = {
-						id: noteId("pi", s.sessionId, `manual-${now.getTime().toString(36)}`),
-						captured: now.toISOString().replace(/\.\d{3}Z$/, "Z"),
+					const file = writeManualNote(s.project, {
 						harness: "pi",
-						session: s.sessionId,
-						session_file: tildify(sessionFilePath(ctx) ?? "", home),
-						anchor,
-						adr_dir: s.layout.adrDir,
-						proposed_target: "adr",
-						confidence: "high",
-						decided_by: "human",
-						signals: ["manual"],
-						related: [],
-						status: "open",
-						decision: rest,
-						why: "Recorded by hand.",
-						alternatives: [],
-						quote: rest,
-					};
-					const w = writeNote(s.root, s.layout.backlogDir, note, { date: now });
+						sessionId: s.sessionId,
+						sessionFile: tildify(sessionFilePath(ctx) ?? "", home),
+						anchor: ctx.sessionManager.getLeafId() ?? "manual",
+						text: rest,
+					});
 					refreshStatus(s, ctx);
-					say(w ? `ADR note: ${w.file}` : "ADR note already exists");
+					say(file ? `ADR note: ${file}` : "ADR note already exists");
 					return;
 				}
 				case "scan": {
 					const results = await track(s, capture(s, ctx, { all: true }));
 					refreshStatus(s, ctx);
-					say(summarize(results));
+					say(summarizeResults(results));
 					return;
 				}
 				case "review": {
-					if (!s.config.reviewer_model) {
+					const { config, root, layout } = s.project;
+					if (!config.reviewer_model) {
 						return say(
-							`ADR recorder: set reviewer_model in ${userConfigPath({ home, env: process.env })}`,
+							`ADR recorder: set reviewer_model in ${userConfigPath(configEnv())}`,
 							"warning",
 						);
 					}
-					const { notes, prompt } = prepareReview(s.layout, {
+					const { notes, prompt } = prepareReview(layout, {
 						headless: false,
 						now: new Date(),
 						home,
@@ -414,7 +311,7 @@ export default function adrRecorder(pi: ExtensionAPI) {
 					if (!notes.length) return say("ADR backlog has no open notes");
 					s.reviewRequested = true;
 					const ask = [
-						`Start a sub-agent with your sub-agent tool to review the ADR backlog. Name it "adr-review", use model ${s.config.reviewer_model}, set working directory ${s.root}, and keep it open so the human can answer its questions. Pass the task below unchanged.`,
+						`Start a sub-agent with your sub-agent tool to review the ADR backlog. Name it "adr-review", use model ${config.reviewer_model}, set working directory ${root}, and keep it open so the human can answer its questions. Pass the task below unchanged.`,
 						"If you have no sub-agent tool, do the review yourself.",
 						"",
 						"Task:",

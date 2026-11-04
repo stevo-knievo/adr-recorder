@@ -178,3 +178,10 @@ export async function scanSession(session: Session, ctx: ScanContext): Promise<E
 	}
 	return results;
 }
+
+/** One line per written note, for chat replies. */
+export function summarizeResults(results: ExchangeResult[]): string {
+	const written = results.filter((r) => r.outcome === "written");
+	if (!written.length) return "ADR recorder: no new decisions found";
+	return `ADR recorder: ${written.length} note(s)\n${written.map((r) => `- ${r.file}`).join("\n")}`;
+}
