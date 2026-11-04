@@ -11,6 +11,8 @@ export interface RepoConfig {
 	numbering?: "sequential" | "date";
 	template?: string;
 	targets?: Partial<Record<DocTarget, string>>;
+	/** Globs (repo-relative) the nested ADR folder search skips. */
+	ignore?: string[];
 }
 
 export interface ModelEndpoint {
@@ -86,6 +88,8 @@ function repoPart(y: Record<string, unknown>): RepoConfig {
 	if (y.numbering === "sequential" || y.numbering === "date") out.numbering = y.numbering;
 	const tpl = str(y.template);
 	if (tpl) out.template = tpl;
+	if (Array.isArray(y.ignore))
+		out.ignore = y.ignore.filter((v): v is string => typeof v === "string");
 	if (y.targets && typeof y.targets === "object") {
 		const t: Partial<Record<DocTarget, string>> = {};
 		for (const [k, v] of Object.entries(y.targets as Record<string, unknown>)) {

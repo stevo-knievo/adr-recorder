@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	detectNumbering,
@@ -10,7 +12,7 @@ import {
 	readTitle,
 	resolveLayout,
 } from "../../src/core/layout.ts";
-import { repoFixture } from "../helpers.ts";
+import { repoFixture, tempRepo } from "../helpers.ts";
 
 describe("resolveLayout", () => {
 	it("docs/adr with .template.md (Nygard)", () => {
@@ -102,6 +104,16 @@ describe("resolveLayout", () => {
 			"1. Use React",
 			"1. Billing owns invoices",
 		]);
+	});
+
+	it("nested search skips fixture folders and configured ignores", () => {
+		const root = tempRepo("monorepo");
+		mkdirSync(join(root, "test", "fixtures", "x", "docs", "adr"), { recursive: true });
+		writeFileSync(join(root, "test", "fixtures", "x", "docs", "adr", "0001-a.md"), "# 1. A\n");
+		const dirs = (cfg = {}) => resolveLayout(root, cfg).folders.map((f) => f.dir);
+		expect(dirs()).not.toContain("test/fixtures/x/docs/adr");
+		expect(dirs({ ignore: ["packages/**"] })).toEqual(["docs/adr", "services/billing/docs/adr"]);
+		expect(dirs({ ignore: ["services/billing"] })).toEqual(["docs/adr", "packages/ui/doc/adrs"]);
 	});
 });
 

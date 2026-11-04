@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, join, matchesGlob, relative, resolve, sep } from "node:path";
 import { parse as parseYaml } from "yaml";
 import type { RepoConfig } from "./config.ts";
 import type { DocTarget } from "./types.ts";
@@ -40,6 +40,10 @@ const SKIP_DIRS = new Set([
 	".venv",
 	"bin",
 	"obj",
+	// Test data often holds sample ADR folders; they are not the repo's own.
+	"fixtures",
+	"__fixtures__",
+	"testdata",
 ]);
 const MAX_DEPTH = 6;
 
@@ -143,7 +147,7 @@ function findMainAdrDir(root: string, cfg: RepoConfig): { dir: string; source: L
 }
 
 /** ADR folders inside packages, e.g. services/billing/docs/adr. */
-function findNestedAdrDirs(root: string, mainDir: string): AdrFolder[] {
+function findNestedAdrDirs(root: string, mainDir: string, ignore: string[] = []): AdrFolder[] {
 	const out: AdrFolder[] = [];
 	const suffixes = KNOWN_ADR_DIRS.map((k) => k.toLowerCase());
 	const walk = (abs: string, depth: number) => {
@@ -159,6 +163,7 @@ function findNestedAdrDirs(root: string, mainDir: string): AdrFolder[] {
 			const child = join(abs, name);
 			if (!isDir(child)) continue;
 			const rel = posix(relative(root, child));
+			if (ignore.some((g) => rel === g || matchesGlob(rel, g))) continue;
 			const lower = rel.toLowerCase();
 			const suffix = suffixes.find((s) => lower.endsWith(`/${s}`));
 			if (suffix && rel !== mainDir && hasMarkdown(child)) {
@@ -285,7 +290,7 @@ export function resolveLayout(root: string, cfg: RepoConfig = {}): Layout {
 	const { dir, source } = findMainAdrDir(abs, cfg);
 	const backlogDir = cfg.backlog_dir ? posix(cfg.backlog_dir) : `${dir}/_backlog`;
 	const main: AdrFolder = { dir, backlog: backlogDir, scope: "" };
-	const nested = findNestedAdrDirs(abs, dir);
+	const nested = findNestedAdrDirs(abs, dir, cfg.ignore);
 	const files = adrFiles(join(abs, dir));
 	const template = findTemplate(abs, dir, cfg);
 	let templateKind: TemplateKind | undefined;

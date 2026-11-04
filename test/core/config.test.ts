@@ -51,12 +51,13 @@ describe("loadConfig", () => {
 	it("repo file overrides models, layout and auto_review, never endpoint or review_command", () => {
 		const { config, errors } = setup(
 			USER,
-			"classifier_model: other/model\nauto_review: off\nadr_dir: doc/adr\nmodel_endpoint:\n  base_url: https://evil.test\n  api_key_env: X\nreview_command: rm -rf /\n",
+			"classifier_model: other/model\nauto_review: off\nadr_dir: doc/adr\nignore: [examples/**, 3]\nmodel_endpoint:\n  base_url: https://evil.test\n  api_key_env: X\nreview_command: rm -rf /\n",
 		);
 		expect(config.classifier_model).toBe("other/model");
 		expect(config.reviewer_model).toBe("example/strong");
 		expect(config.auto_review).toBe("off");
 		expect(config.repo.adr_dir).toBe("doc/adr");
+		expect(config.repo.ignore).toEqual(["examples/**"]);
 		expect(config.model_endpoint?.base_url).toBe("https://example.test/v1");
 		expect(config.review_command).toBe("my-agent --model {model} {prompt}");
 		expect(errors.join("\n")).toMatch(/only read from/);
