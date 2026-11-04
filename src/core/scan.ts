@@ -9,6 +9,7 @@ import {
 } from "./detect.ts";
 import { type Layout, listAdrs, pickFolder } from "./layout.ts";
 import { makeQuote, type Note, noteId, readBacklog, writeNote } from "./notes.ts";
+import { REVIEW_MARKER } from "./review.ts";
 import { parsePiSession, readPiHeader, toExchanges } from "./transcript.ts";
 import type { Exchange, Session } from "./types.ts";
 
@@ -134,6 +135,10 @@ export interface ScanContext {
 	dryRun?: boolean;
 	now?: () => Date;
 	signal?: AbortSignal;
+	/** Only look at exchanges this returns true for (live capture: the new ones). */
+	filter?: (ex: Exchange) => boolean;
+	/** Called after each note is written. */
+	onNote?: (file: string) => void;
 	/** Shown as ~ in session_file, so committed notes don't carry a home path. */
 	home?: string;
 }
@@ -157,6 +162,8 @@ export async function scanSession(session: Session, ctx: ScanContext): Promise<E
 
 	const results: ExchangeResult[] = [];
 	for (const ex of toExchanges(session.turns)) {
+		if (ctx.filter && !ctx.filter(ex)) continue;
+		if (ex.user.includes(REVIEW_MARKER)) continue; // our own review request
 		const trigger = scoreExchange(ex);
 		const base: ExchangeResult = {
 			anchor: ex.anchor,

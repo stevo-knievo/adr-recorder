@@ -99,6 +99,29 @@ export function parsePiSession(text: string, file: string): Session {
 	};
 }
 
+/**
+ * Build a session from entries that are already the active branch, as pi's
+ * session manager returns them. Used by the live extension.
+ */
+export function piSessionFromBranch(
+	header: { id?: string; cwd?: string; timestamp?: string } | undefined,
+	branch: unknown[],
+	file: string,
+): Session {
+	const turns = (branch as PiEntry[])
+		.filter((e) => e && e.type !== "session")
+		.map(toTurn)
+		.filter((t): t is Turn => t !== undefined);
+	return {
+		harness: "pi",
+		id: header?.id ?? file,
+		file,
+		cwd: header?.cwd ?? "",
+		started: header?.timestamp ?? "",
+		turns,
+	};
+}
+
 /** Header only, without parsing the whole file. */
 export function readPiHeader(
 	firstLine: string,
