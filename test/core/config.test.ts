@@ -67,13 +67,22 @@ describe("loadConfig", () => {
 	});
 
 	it("review_launcher, review_harness and stateDir", () => {
-		const { config } = setup("review_launcher: herdr\nreview_harness: other\n");
+		const { config } = setup(
+			"review_launcher: herdr\nreview_harness: other\nagent_commands:\n  claude-code: wrap claude\n  pi: ''\n",
+		);
 		expect(config.review_launcher).toBe("herdr");
+		expect(config.agent_commands).toEqual({ "claude-code": "wrap claude" });
 		expect(config.review_harness).toBe("other");
 		expect(setup("").config.review_launcher).toBe("auto");
-		const { config: c2, errors } = setup("", "review_launcher: rex\nenabled_paths: [x]\n");
+		const { config: c2, errors } = setup(
+			"",
+			"review_launcher: rex\nenabled_paths: [x]\nagent_commands: { pi: evil }\n",
+		);
 		expect(c2.review_launcher).toBe("auto");
-		expect(errors.join("\n")).toMatch(/review_launcher, enabled_paths are only read from/);
+		expect(c2.agent_commands).toBeUndefined();
+		expect(errors.join("\n")).toMatch(
+			/review_launcher, agent_commands, enabled_paths are only read from/,
+		);
 		expect(stateDir({ home: "/h", env: {} })).toBe("/h/.local/state/adr-recorder");
 		expect(stateDir({ home: "/h", env: { XDG_STATE_HOME: "/s" } })).toBe("/s/adr-recorder");
 	});

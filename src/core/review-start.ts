@@ -65,6 +65,7 @@ export async function startReview(input: StartReviewInput): Promise<StartedRevie
 		"pi";
 	const agent = getHarness(agentName)?.reviewer;
 	if (!agent) throw new Error(`No reviewer for harness ${agentName}`);
+	const bin = config.agent_commands?.[agentName];
 	const headless = prepareReview(layout, { headless: true, now, home: input.home });
 
 	const stamp = now.getTime().toString(36);
@@ -74,11 +75,12 @@ export async function startReview(input: StartReviewInput): Promise<StartedRevie
 	const job: LaunchJob = {
 		cwd: layout.root,
 		title: "adr-review",
-		command: agent.reviewerCommand({ cwd: layout.root, model, promptFile }),
+		command: agent.reviewerCommand({ cwd: layout.root, model, promptFile, bin }),
 		headlessCommand: agent.headlessReviewerCommand({
 			cwd: layout.root,
 			model,
 			promptFile: headlessPromptFile,
+			bin,
 		}),
 		logFile: join(input.stateDir, `review-${stamp}.log`),
 	};

@@ -15,6 +15,8 @@ export interface ReviewerRun {
 	cwd: string;
 	model: string;
 	promptFile: string;
+	/** How to start the agent, from `agent_commands`. Each harness has a default. */
+	bin?: string;
 }
 
 /** Reads one agent's past sessions. Needed for `scan` and live capture. */

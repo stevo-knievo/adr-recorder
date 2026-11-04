@@ -129,6 +129,24 @@ describe("startReview", () => {
 		).rejects.toThrow("No reviewer for harness nope");
 	});
 
+	it("starts the agent the way agent_commands says", async () => {
+		const { layout, stateDir } = await setup();
+		const { sys } = fakeSystem();
+		const r = await startReview({
+			layout,
+			config: config({
+				review_harness: "claude-code",
+				agent_commands: { "claude-code": "wrap claude" },
+			}),
+			sys,
+			home: "/h",
+			stateDir,
+			dryRun: true,
+		});
+		expect(r?.job.command).toContain("ADR_REVIEW_CHILD=1 wrap claude --model 'p/strong'");
+		expect(r?.job.headlessCommand).toContain("wrap claude -p --model");
+	});
+
 	it("needs reviewer_model", async () => {
 		const { layout, stateDir } = await setup();
 		const { sys } = fakeSystem();

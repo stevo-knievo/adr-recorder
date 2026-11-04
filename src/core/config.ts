@@ -37,6 +37,8 @@ export interface Config {
 	review_command?: string;
 	/** Agent that runs the review. Defaults to the harness the session ran in. User config only. */
 	review_harness?: string;
+	/** How to start each agent, e.g. { claude-code: "my-wrapper claude" }. User config only. */
+	agent_commands?: Record<string, string>;
 	repo: RepoConfig;
 }
 
@@ -87,6 +89,15 @@ function readYaml(file: string, errors: string[]): Record<string, unknown> | und
 
 const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
 const strList = (v: unknown) => (Array.isArray(v) ? v.map(String).filter(Boolean) : []);
+function strMap(v: unknown): Record<string, string> | undefined {
+	if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
+	const out: Record<string, string> = {};
+	for (const [k, x] of Object.entries(v)) {
+		const s = str(x);
+		if (s) out[k] = s;
+	}
+	return Object.keys(out).length ? out : undefined;
+}
 
 function repoPart(y: Record<string, unknown>): RepoConfig {
 	const out: RepoConfig = {};
@@ -116,6 +127,7 @@ export const USER_ONLY_KEYS = [
 	"review_launcher",
 	"review_command",
 	"review_harness",
+	"agent_commands",
 	"enabled_paths",
 	"disabled_paths",
 ] as const;
@@ -167,6 +179,7 @@ export function loadConfig(envIn: ConfigEnv, repoRoot?: string): LoadedConfig {
 		review_launcher: str(u.review_launcher) ?? (str(u.review_command) ? "command" : "auto"),
 		review_command: str(u.review_command),
 		review_harness: str(u.review_harness),
+		agent_commands: strMap(u.agent_commands),
 		repo: { ...repoPart(u), ...repoPart(r) },
 	};
 	return { config, sources, errors };

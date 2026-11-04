@@ -218,9 +218,9 @@ export const piSessions: SessionSource = {
 export const piReviewer: ReviewerAgent = {
 	name: "pi",
 	reviewerCommand: (run) =>
-		`cd ${shq(run.cwd)} && ${REVIEW_CHILD_ENV}=1 pi --model ${shq(run.model)} ${promptArg(run)}`,
+		`cd ${shq(run.cwd)} && ${REVIEW_CHILD_ENV}=1 ${run.bin ?? "pi"} --model ${shq(run.model)} ${promptArg(run)}`,
 	headlessReviewerCommand: (run) =>
-		`cd ${shq(run.cwd)} && ${REVIEW_CHILD_ENV}=1 pi -p --model ${shq(run.model)} ${promptArg(run)}`,
+		`cd ${shq(run.cwd)} && ${REVIEW_CHILD_ENV}=1 ${run.bin ?? "pi"} -p --model ${shq(run.model)} ${promptArg(run)}`,
 };
 
 export const piHarness: HarnessAdapter = { name: "pi", sessions: piSessions, reviewer: piReviewer };
