@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+- pi extension: records decisions after each agent run through pi's own
+  providers, shows the note count in the status line, and adds `/adr on`,
+  `off`, `status`, `note`, `scan` and `review`.
+- `/adr review` starts a reviewer sub-agent that proposes where each note
+  belongs and writes a review report.
+- Auto review on quit, through `review_command` or a background `pi -p` run,
+  with a notice in the next session. Review agents never record.
+
 - `adr-recorder scan` for pi sessions: finds sessions for a project, scores
   each exchange locally, classifies hits with the configured model, and
   writes one backlog note per decision. Safe to re-run.

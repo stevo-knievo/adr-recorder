@@ -5,8 +5,8 @@ spots when a decision is made, and writes a short note to the project's ADR
 backlog. A review step later turns each note into an ADR, a lighter doc (see
 `docs/how-to-document.md`), or nothing.
 
-Status: early. `adr-recorder scan` works for pi sessions. Live capture in pi,
-review, and the Claude Code and Codex adapters are next.
+Status: early. Works in pi (live capture, `/adr` commands, review) and as a
+CLI over pi session files. Claude Code and Codex adapters are next.
 
 ## Install (pi)
 
@@ -29,7 +29,8 @@ Shared install from git:
 pi install git:github.com/stevo-knievo/adr-recorder
 ```
 
-When active, the status line shows `ADR rec ●`.
+When active, the status line shows `ADR rec ●`, or `ADR rec ● 3` once this
+session has three notes.
 
 ## Configuration
 
@@ -51,6 +52,9 @@ model_endpoint:
   api_key_env: OPENAI_API_KEY # name of the env var, never the key
 
 auto_review: on # on | ask | off
+# How to start the review agent when a session quits. Optional; without it
+# the review runs headless in the background. See "Review" below.
+review_command: 'if [ -n "$REX_SESSION" ]; then rex run --cwd {cwd} -- "$SHELL" -ic {command}; else {headless}; fi'
 enabled_paths: [] # e.g. ["~/code/work/**"], on even without an ADR folder
 disabled_paths: [] # always off here, wins over everything but /adr on
 ```
@@ -71,6 +75,7 @@ template: doc/architecture/decisions/template.md
 targets:
   glossary: docs/terms.md
   decision_log: docs/DECISIONS.md
+ignore: [examples/**] # skipped when looking for package ADR folders
 ```
 
 `model_endpoint`, `review_command`, and the path lists are only read from your
@@ -89,7 +94,50 @@ Markdown, ignoring case: `docs/adr`, `docs/adrs`, `doc/adr`, `doc/adrs`,
 Notes go to `<adr_dir>/_backlog/YYYY-MM-DD_slug.md` and are meant to be
 committed. In a monorepo with package ADR folders (say
 `services/billing/docs/adr`), a decision about files in that package goes to
-that package's backlog.
+that package's backlog. Folders named `fixtures`, `__fixtures__`,
+`testdata`, `node_modules`, `vendor` and build output are never searched.
+
+## In pi
+
+The recorder is on in a repo that has an ADR folder, in folders matching
+`enabled_paths`, or after `/adr on`. After each agent run it looks at the new
+exchange and writes a note if a decision was made. Classification goes
+through pi's own providers, using `classifier_model`.
+
+| Command               | What it does                                                                                                                                             |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/adr status`         | layout, models, notes so far                                                                                                                             |
+| `/adr on`, `/adr off` | turn it on or off for this session (kept on resume). In a repo with no ADR folder, `on` asks where ADRs should live and saves it in `.adr-recorder.yaml` |
+| `/adr note <text>`    | record a decision by hand, no model call                                                                                                                 |
+| `/adr scan`           | look at the whole session, for sessions where it was off                                                                                                 |
+| `/adr review`         | ask the agent to start a reviewer sub-agent on the backlog                                                                                               |
+
+### Review
+
+The reviewer reads the open notes, the existing ADRs and the session
+transcripts, and proposes for each note: promote to an ADR (drafted from the
+repo's template), merge into another note, move to a lighter doc (with the
+exact file and text), or discard. It writes
+`<backlog>/_review-YYYY-MM-DD_HHMM.md` and asks before touching anything
+outside the backlog.
+
+`/adr review` hands the task to the agent's sub-agent tool. Which tool that is
+(a Rex pane, a tmux split, anything else) is up to the pi packages you have
+installed. Without one, the agent does the review itself.
+
+When a session that recorded notes quits, `auto_review` starts a review on
+its own. A quitting pi can't host it, so it hands off:
+
+- With `review_command` set, that shell command runs. Placeholders: `{cwd}`,
+  `{model}`, `{prompt_file}`, `{command}` (an interactive `pi` with the review
+  prompt) and `{headless}` (the background run below). The example above opens
+  a new Rex block inside Rex and falls back to the background run elsewhere.
+- Without it, `pi -p` runs in the background and writes only the report. The
+  next pi session in that repo says "ADR review ready: N proposals".
+
+Review agents get `ADR_REVIEW_CHILD=1` and don't record or start reviews of
+their own. Each note is auto-reviewed once, even across resumes. Logs and
+bookkeeping live in `~/.local/state/adr-recorder/`.
 
 ## CLI
 
