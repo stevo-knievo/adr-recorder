@@ -1,16 +1,24 @@
-import { copyFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	copyFileSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { adrCommand } from "../../src/claude-code/adr-command.ts";
-import { claudeCodeMain } from "../../src/claude-code/cli.ts";
-import { type Deps, readOverride } from "../../src/claude-code/context.ts";
-import { handleHook } from "../../src/claude-code/hook.ts";
-import { statusLine } from "../../src/claude-code/statusline.ts";
 import { captureSession } from "../../src/core/capture.ts";
 import type { Classifier, ClassifierInput } from "../../src/core/detect.ts";
 import { encodeClaudeProjectDir, parseClaudeSession } from "../../src/core/harness/claude-code.ts";
 import { readBacklog } from "../../src/core/notes.ts";
 import { lockSession } from "../../src/core/state.ts";
+import { adrCommand } from "../../src/hook-agent/adr-command.ts";
+import { claudeCodeAgent, codexAgent } from "../../src/hook-agent/agents.ts";
+import { hookAgentMain } from "../../src/hook-agent/cli.ts";
+import { type Deps, readOverride } from "../../src/hook-agent/context.ts";
+import { handleHook } from "../../src/hook-agent/hook.ts";
+import { statusLine } from "../../src/hook-agent/statusline.ts";
 import { decision, FIXTURES, fakeSystem, tempRepo } from "../helpers.ts";
 
 const SID = "dc806543-1e1a-4112-ba37-6aa35578dbed";
@@ -50,6 +58,7 @@ function setup(env: Record<string, string> = {}) {
 	const err: string[] = [];
 	const { classifier, calls } = countingClassifier();
 	const d: Deps = {
+		agent: claudeCodeAgent,
 		env: { ...sys.env, TEST_KEY: "k" },
 		home,
 		stateDir: join(home, "state"),
@@ -213,7 +222,7 @@ describe("claude-code capture command", () => {
 	it("reviews after a quit, not after /clear", async () => {
 		const s = setup({ REX_SESSION: "r" });
 		const run = (reason: string) =>
-			claudeCodeMain(
+			hookAgentMain(
 				[
 					"capture",
 					"--transcript",
@@ -287,5 +296,89 @@ describe("Claude Code status line", () => {
 			"model · branch  ADR rec ● 1\nsecond",
 		);
 		expect(runs[0]).toEqual(["sh", "-c", "my-status"]);
+	});
+});
+
+describe("Codex through the same hooks", () => {
+	const CID = "01a1a6f3-d114-70d2-8925-c4df255c06e1";
+	function codexSetup(env: Record<string, string> = {}) {
+		const s = setup(env);
+		const day = join(s.home, ".codex", "sessions", "2026", "11", "04");
+		mkdirSync(day, { recursive: true });
+		const transcript = join(day, `rollout-2026-11-04T14-25-59-${CID}.jsonl`);
+		copyFileSync(join(FIXTURES, "sessions", "codex-cli-notes.jsonl"), transcript);
+		return { ...s, transcript, d: { ...s.d, agent: codexAgent } };
+	}
+	const capture = (s: ReturnType<typeof codexSetup>, reason: string) =>
+		hookAgentMain(
+			[
+				"capture",
+				"--transcript",
+				s.transcript,
+				"--session",
+				CID,
+				"--cwd",
+				s.repo,
+				"--final",
+			].concat(["--reason", reason]),
+			s.d,
+			async () => "",
+		);
+
+	it("hooks start a codex worker with its own log", () => {
+		const s = codexSetup();
+		handleHook(
+			{
+				hook_event_name: "SessionEnd",
+				session_id: CID,
+				transcript_path: s.transcript,
+				cwd: s.repo,
+				reason: "other",
+			},
+			s.d,
+		);
+		expect(s.detached[0]?.argv.slice(2, 4)).toEqual(["codex", "capture"]);
+		expect(s.detached[0]?.logFile).toMatch(/codex\/capture\.log$/);
+	});
+
+	it("SessionEnd in Codex is a quit: notes, then a Codex review", async () => {
+		const s = codexSetup({ REX_SESSION: "r" });
+		await capture(s, "other");
+		// The "OK for this session only" exchange doesn't pass the prefilter.
+		expect(s.out.at(-1)).toMatch(/ 2 note\(s\), review started: 2 note\(s\), rex/);
+		expect(s.notes().map((n) => n.harness)).toEqual(["codex", "codex"]);
+		expect(s.runs[0]?.at(-1)).toMatch(/ADR_REVIEW_CHILD=1 codex --model 'strong' -- /);
+	});
+
+	it("/adr finds the rollout by session id", async () => {
+		const s = codexSetup();
+		await adrCommand({ id: CID, cwd: s.repo }, ["note", "Keep", "zero", "deps"], s.d);
+		expect(s.notes()[0]?.sessionFile).toMatch(/^~\/\.codex\/sessions\/.*\.jsonl$/);
+		await adrCommand({ id: CID, cwd: s.repo }, ["scan"], s.d);
+		expect(s.calls).toHaveLength(2);
+		expect(readOverride(s.d, CID)).toBeUndefined();
+		await adrCommand({ id: CID, cwd: s.repo }, ["off"], s.d);
+		expect(readOverride(s.d, CID)).toBe(false);
+		expect(readOverride({ ...s.d, agent: claudeCodeAgent }, CID)).toBeUndefined();
+	});
+});
+
+describe("/adr in a sandbox", () => {
+	it("says what to do when the state folder is read-only", async () => {
+		const s = setup();
+		const stateDir = join(s.home, "ro-state");
+		mkdirSync(stateDir);
+		chmodSync(stateDir, 0o500);
+		try {
+			const code = await hookAgentMain(
+				["adr", "--session", SID, "--cwd", s.repo, "--", "off"],
+				{ ...s.d, stateDir },
+				async () => "",
+			);
+			expect(code).toBe(1);
+			expect(s.out.join("")).toMatch(/blocked by the sandbox .*\n.*outside the sandbox/);
+		} finally {
+			chmodSync(stateDir, 0o700);
+		}
 	});
 });

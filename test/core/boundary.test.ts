@@ -20,7 +20,7 @@ describe("core boundary", () => {
 			const src = readFileSync(f, "utf8");
 			return (
 				/from\s+["'](@earendil-works\/|@mariozechner\/|typebox)/.test(src) ||
-				/from\s+["']\.\.\/(pi|claude-code|codex)\//.test(src)
+				/from\s+["']\.\.\/(pi|hook-agent)\//.test(src)
 			);
 		});
 		expect(offenders).toEqual([]);
@@ -28,7 +28,7 @@ describe("core boundary", () => {
 
 	it("adapters only reach each other through core", () => {
 		const SRC = new URL("../../src/", import.meta.url).pathname;
-		const adapters = ["pi", "claude-code"];
+		const adapters = ["pi", "hook-agent"];
 		const offenders = adapters.flatMap((a) =>
 			tsFiles(join(SRC, a)).filter((f) => {
 				const src = readFileSync(f, "utf8");

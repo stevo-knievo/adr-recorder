@@ -1,4 +1,12 @@
-import { closeSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
+import {
+	closeSync,
+	existsSync,
+	openSync,
+	readdirSync,
+	readFileSync,
+	readSync,
+	statSync,
+} from "node:fs";
 import { basename, join, resolve, sep } from "node:path";
 import { endpointModelId } from "../classifier-openai.ts";
 import { REVIEW_CHILD_ENV } from "../review.ts";
@@ -245,10 +253,30 @@ const bin = (run: ReviewerRun) => run.bin ?? "claude";
 /** Claude Code takes the model name alone, without pi's provider part. */
 const model = (run: ReviewerRun) => shq(endpointModelId(run.model));
 
+/** A session's transcript: in the project's folder, or failing that, any folder. */
+export function findClaudeTranscript(
+	sessionsRoot: string,
+	sessionId: string,
+	cwd: string,
+): string | undefined {
+	const direct = join(sessionsRoot, encodeClaudeProjectDir(cwd), `${sessionId}.jsonl`);
+	if (existsSync(direct)) return direct;
+	try {
+		for (const dir of readdirSync(sessionsRoot)) {
+			const f = join(sessionsRoot, dir, `${sessionId}.jsonl`);
+			if (existsSync(f)) return f;
+		}
+	} catch {
+		// no sessions folder yet
+	}
+	return undefined;
+}
+
 export const claudeSessions: SessionSource = {
 	name: "claude-code",
 	sessionsDir: claudeSessionsDir,
 	findSessions: findClaudeSessions,
+	findSession: findClaudeTranscript,
 	loadSession: (file) => parseClaudeSession(readFileSync(file, "utf8"), file),
 };
 

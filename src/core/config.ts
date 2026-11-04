@@ -188,6 +188,12 @@ export function loadConfig(envIn: ConfigEnv, repoRoot?: string): LoadedConfig {
 	return { config, sources, errors };
 }
 
+/** The model a reviewer agent runs: its own from agent_models, else reviewer_model. */
+export const reviewerModelFor = (
+	config: Pick<Config, "agent_models" | "reviewer_model">,
+	agent: string,
+): string | undefined => config.agent_models?.[agent] ?? config.reviewer_model;
+
 function mergeMaps(
 	a: Record<string, string> | undefined,
 	b: Record<string, string> | undefined,

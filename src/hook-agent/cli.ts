@@ -1,24 +1,26 @@
 import { parseArgs } from "node:util";
 import { captureSession } from "../core/capture.ts";
 import { adrCommand } from "./adr-command.ts";
-import { type Deps, HARNESS, type HookInput, QUIT_REASONS } from "./context.ts";
+import type { Deps, HookInput } from "./context.ts";
 import { handleHook } from "./hook.ts";
 import { statusLine } from "./statusline.ts";
 
-export const CLAUDE_CODE_USAGE = `Usage: adr-recorder claude-code <command>
+export const hookAgentUsage = (
+	d: Pick<Deps, "agent">,
+) => `Usage: adr-recorder ${d.agent.harness} <command>
 
-Commands used by the Claude Code plugin (see README, "Claude Code"):
+Commands used by the ${d.agent.label} plugin (see README):
   hook                     Handle a hook event; reads the hook JSON on stdin
   capture --transcript <f> --session <id> --cwd <dir> [--final --reason <r>]
                            Classify new exchanges (started by the hooks)
   adr --session <id> --cwd <dir> [--args-stdin | -- <args>]
                            Backend of the /adr command
   statusline [--wrap <cmd>]
-                           Status line segment; --wrap runs your own status
-                           line command and appends to it
+                           Status line segment (Claude Code); --wrap runs
+                           your own status line command and appends to it
 `;
 
-export async function claudeCodeMain(
+export async function hookAgentMain(
 	argv: string[],
 	d: Deps,
 	readStdin: () => Promise<string>,
@@ -31,7 +33,7 @@ export async function claudeCodeMain(
 				input = JSON.parse(await readStdin()) as HookInput;
 			} catch {
 				d.err("hook: expected the hook JSON on stdin\n");
-				return 0; // never block Claude Code
+				return 0; // never block the agent
 			}
 			handleHook(input, d);
 			return 0;
@@ -56,13 +58,13 @@ export async function claudeCodeMain(
 			const stamp = (d.now?.() ?? new Date()).toISOString();
 			const r = await captureSession(
 				{
-					harness: HARNESS,
+					harness: d.agent.harness,
 					transcript: values.transcript,
 					sessionId: values.session,
 					cwd: values.cwd,
 					expect: values.expect,
 					final: values.final,
-					quit: values.final && QUIT_REASONS.has(values.reason ?? ""),
+					quit: values.final && d.agent.quitReasons.has(values.reason ?? ""),
 					all: values.all,
 				},
 				d,
@@ -92,7 +94,17 @@ export async function claudeCodeMain(
 				return 2;
 			}
 			const args = values["args-stdin"] ? [(await readStdin()).trim()] : positionals;
-			return adrCommand({ id: values.session, cwd: values.cwd }, args, d);
+			try {
+				return await adrCommand({ id: values.session, cwd: values.cwd }, args, d);
+			} catch (e) {
+				const code = (e as NodeJS.ErrnoException).code ?? "";
+				if (!["EROFS", "EACCES", "EPERM"].includes(code)) throw e;
+				d.out(
+					`ADR recorder: blocked by the sandbox (${(e as Error).message}).\n` +
+						"Run it again outside the sandbox (approve escalated permissions).\n",
+				);
+				return 1;
+			}
 		}
 		case "statusline": {
 			const { values } = parseArgs({ args: rest, options: { wrap: { type: "string" } } });
@@ -101,7 +113,7 @@ export async function claudeCodeMain(
 			return 0;
 		}
 		default:
-			d.out(CLAUDE_CODE_USAGE);
+			d.out(hookAgentUsage(d));
 			return command && command !== "help" ? 2 : 0;
 	}
 }

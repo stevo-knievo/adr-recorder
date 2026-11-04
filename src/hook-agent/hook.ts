@@ -8,17 +8,17 @@ import { type Deps, type HookInput, readOverride } from "./context.ts";
 const EXPECT_CHARS = 200;
 
 /** Where detached workers write their output. */
-export const captureLog = (d: Deps) => join(d.stateDir, "claude-code", "capture.log");
+export const captureLog = (d: Deps) => join(d.stateDir, d.agent.harness, "capture.log");
 
 /**
  * Entry point for every hook. It must return fast (SessionEnd gets 1.5s in
- * total), so it only checks cheap things and hands the model work to a
- * detached `claude-code capture` worker.
+ * Claude Code, 1-3s in Codex), so it only checks cheap things and hands the model work to a
+ * detached `<agent> capture` worker.
  */
 export function handleHook(input: HookInput, d: Deps): void {
 	if (d.env[REVIEW_CHILD_ENV] === "1") return;
 	const { session_id: sessionId, transcript_path: transcript } = input;
-	const cwd = input.cwd || d.env.CLAUDE_PROJECT_DIR;
+	const cwd = input.cwd || (d.agent.projectDirEnv ? d.env[d.agent.projectDirEnv] : undefined);
 	if (!sessionId || !cwd) return;
 	const project = loadProject(cwd, { home: d.home, env: d.env });
 
@@ -30,7 +30,7 @@ export function handleHook(input: HookInput, d: Deps): void {
 	if (!transcript) return;
 	if (!projectEnablement(project, { override: readOverride(d, sessionId) }).enabled) return;
 
-	const argv = [...d.self, "claude-code", "capture"];
+	const argv = [...d.self, d.agent.harness, "capture"];
 	argv.push("--transcript", transcript, "--session", sessionId, "--cwd", cwd);
 	switch (input.hook_event_name) {
 		case "Stop":

@@ -29,6 +29,8 @@ export interface SessionSource {
 	findSessions(sessionsDir: string, project: string, since?: Date): FoundSession[];
 	/** Parse a session file into turns on its active branch. */
 	loadSession(file: string): Session;
+	/** The file of one session by id, for agents that give hooks only the id. */
+	findSession?(sessionsDir: string, sessionId: string, cwd: string): string | undefined;
 }
 
 /** Starts one agent as a reviewer. Needed for `review`. */

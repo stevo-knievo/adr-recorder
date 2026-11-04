@@ -1,7 +1,6 @@
-import { readFileSync } from "node:fs";
 import { captureSession, isReviewChild } from "../core/capture.ts";
 import { REPO_CONFIG_FILE } from "../core/config.ts";
-import { parseClaudeSession } from "../core/harness/claude-code.ts";
+import { getHarness } from "../core/harness/index.ts";
 import { hasAdrFolder } from "../core/layout.ts";
 import {
 	loadProject,
@@ -12,12 +11,12 @@ import {
 } from "../core/project.ts";
 import { startReview } from "../core/review-start.ts";
 import { summarizeResults, tildify } from "../core/scan.ts";
-import { type Deps, findTranscript, HARNESS, readOverride, writeOverride } from "./context.ts";
+import { type Deps, findTranscript, readOverride, writeOverride } from "./context.ts";
 
 export const SUBCOMMANDS = ["on", "off", "status", "note", "scan", "review"];
 
 /**
- * Backend of the `/adr` skill. Claude runs it with its Bash tool and shows
+ * Backend of the `/adr` skill. The agent runs it with its shell tool and shows
  * the output, so everything here prints plain text and returns an exit code.
  */
 export async function adrCommand(
@@ -31,9 +30,11 @@ export async function adrCommand(
 	const rest = restParts.join(" ");
 	const transcript = findTranscript(d, session.id, session.cwd);
 	const say = (s: string) => d.out(`${s}\n`);
+	const harness = d.agent.harness;
+	const sessions = getHarness(harness)?.sessions;
 	const reviewChild = () =>
-		transcript
-			? isReviewChild(d, parseClaudeSession(readFileSync(transcript, "utf8"), transcript))
+		transcript && sessions
+			? isReviewChild(d, sessions.loadSession(transcript))
 			: d.env.ADR_REVIEW_CHILD === "1";
 	const enablement = () =>
 		projectEnablement(project, {
@@ -43,14 +44,7 @@ export async function adrCommand(
 
 	switch (sub) {
 		case "status":
-			say(
-				statusReport(
-					project,
-					enablement(),
-					{ harness: HARNESS, id: session.id },
-					{ needEndpoint: true },
-				),
-			);
+			say(statusReport(project, enablement(), { harness, id: session.id }, { needEndpoint: true }));
 			return 0;
 		case "on": {
 			if (!hasAdrFolder(project.layout) && !project.config.repo.adr_dir) {
@@ -74,7 +68,7 @@ export async function adrCommand(
 				return 2;
 			}
 			const file = writeManualNote(project, {
-				harness: HARNESS,
+				harness,
 				sessionId: session.id,
 				sessionFile: transcript ? tildify(transcript, d.home) : "",
 				anchor: "manual",
@@ -90,7 +84,7 @@ export async function adrCommand(
 				return 1;
 			}
 			const r = await captureSession(
-				{ harness: HARNESS, transcript, sessionId: session.id, cwd: session.cwd, all: true },
+				{ harness, transcript, sessionId: session.id, cwd: session.cwd, all: true },
 				d,
 			);
 			if ("results" in r) say(summarizeResults(r.results));
@@ -102,7 +96,7 @@ export async function adrCommand(
 			const started = await startReview({
 				layout: project.layout,
 				config: project.config,
-				harness: HARNESS,
+				harness,
 				sys: d.sys,
 				home: d.home,
 				stateDir: d.stateDir,

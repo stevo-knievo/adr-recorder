@@ -5,6 +5,7 @@ import { scoreExchange, toolCommand } from "../../src/core/detect.ts";
 import {
 	codexReviewer,
 	codexSessionsDir,
+	findCodexRollout,
 	findCodexSessions,
 	parseCodexSession,
 	patchFiles,
@@ -154,6 +155,9 @@ describe("Codex sessions", () => {
 			"rollout-b.jsonl",
 		]);
 		expect(findCodexSessions(join(root, "missing"), "/work/app")).toEqual([]);
+		put("2026-11-03", "rollout-2026-11-03T09-00-00-abc.jsonl", "/work/app", "2026-11-03T09:00:00Z");
+		expect(findCodexRollout(root, "abc")).toMatch(/2026\/11\/03\/rollout-.*-abc\.jsonl$/);
+		expect(findCodexRollout(root, "nope")).toBeUndefined();
 	});
 
 	it("live under CODEX_HOME when set", () => {

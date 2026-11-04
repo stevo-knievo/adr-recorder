@@ -112,8 +112,9 @@ Then register it in `src/core/harness/index.ts`.
 
 ## Add live capture for an agent
 
-Live capture lives outside core, in a folder named after the agent
-(`src/pi/`, `src/claude-code/`). Only that folder may import the agent's SDK,
+Live capture lives outside core: `src/pi/` for pi, `src/hook-agent/` for
+agents with Claude Code style hooks (Claude Code, Codex). Only an adapter
+folder may import an agent's SDK,
 and adapters never import each other; `test/core/boundary.test.ts` checks
 both. What an adapter needs is already in core:
 
@@ -130,15 +131,30 @@ How the adapter gets new exchanges depends on the agent:
 
 - **In-process** (pi): the extension lives as long as the session, keeps the
   set of seen exchanges in memory and calls `scanSession` after each run.
-- **Hooks** (Claude Code): each hook is a new, short-lived process. Return at
+- **Hooks** (Claude Code, Codex): each hook is a new, short-lived process. Return at
   once and start a detached worker that calls `captureSession` from
   `src/core/capture.ts`. It reads the transcript through the harness's
   `SessionSource`, keeps one worker per session (later jobs queue behind it),
   waits briefly for a reply that hasn't reached the transcript yet,
   remembers what it classified in the state dir, and runs `reviewOnExit` when
   the job says the human quit. `/adr on` and `/adr off` go to
-  `writeOverride` in `src/core/state.ts`. See `src/claude-code/hook.ts` for
+  `writeOverride` in `src/core/state.ts`. See `src/hook-agent/hook.ts` for
   the whole pattern in about fifty lines.
+
+If the agent's hooks send the same JSON as Claude Code (`session_id`,
+`transcript_path`, `cwd`, `hook_event_name`, `last_assistant_message`,
+`reason`), you don't write an adapter at all:
+
+1. The harness in `src/core/harness/<name>.ts`, with `findSession` so `/adr`
+   can find the transcript by session id.
+2. A profile in `src/hook-agent/agents.ts`: name, label, the SessionEnd
+   reasons that mean the human quit, and the env var with the project folder
+   if hooks may lack `cwd`. That also adds the CLI command
+   `adr-recorder <name> hook|capture|adr`.
+3. The agent's plugin files: a manifest, a hooks file that runs
+   `adr-recorder <name> hook` (see `hooks/hooks.json` and
+   `hooks/codex-hooks.json`), and an `/adr` skill that passes the session id
+   (`skills/adr/`, `codex/skills/adr/`).
 
 Hook-based agents have no model access for plugins, so the classifier comes
 from `model_endpoint` (`classifierFromConfig`).

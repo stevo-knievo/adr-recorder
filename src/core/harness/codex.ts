@@ -247,6 +247,15 @@ export function findCodexSessions(
 	return out.sort((a, b) => a.started.localeCompare(b.started));
 }
 
+/** A rollout by session id; newest days first, since that's where live sessions are. */
+export function findCodexRollout(sessionsRoot: string, sessionId: string): string | undefined {
+	const suffix = `-${sessionId}.jsonl`;
+	return rollouts(sessionsRoot)
+		.filter((f) => f.endsWith(suffix))
+		.sort()
+		.at(-1);
+}
+
 const prompt = (run: ReviewerRun) => `"$(cat ${shq(run.promptFile)})"`;
 const bin = (run: ReviewerRun) => run.bin ?? "codex";
 /** Codex takes the model name alone, without pi's provider part. */
@@ -256,6 +265,7 @@ export const codexSessions: SessionSource = {
 	name: "codex",
 	sessionsDir: codexSessionsDir,
 	findSessions: findCodexSessions,
+	findSession: (root, id) => findCodexRollout(root, id),
 	loadSession: (file) => parseCodexSession(readFileSync(file, "utf8"), file),
 };
 

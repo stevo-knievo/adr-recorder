@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Config } from "./config.ts";
+import { type Config, reviewerModelFor } from "./config.ts";
 import { getHarness } from "./harness/index.ts";
 import {
 	headlessLauncher,
@@ -64,7 +64,7 @@ export async function startReview(input: StartReviewInput): Promise<StartedRevie
 	const agent = getHarness(agentName)?.reviewer;
 	if (!agent) throw new Error(`No reviewer for harness ${agentName}`);
 	const bin = config.agent_commands?.[agentName];
-	const model = config.agent_models?.[agentName] ?? config.reviewer_model;
+	const model = reviewerModelFor(config, agentName);
 	if (!model) throw new Error("reviewer_model is not set");
 	const headless = prepareReview(layout, { headless: true, now, home: input.home });
 

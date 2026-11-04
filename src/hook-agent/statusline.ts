@@ -1,7 +1,7 @@
 import { loadProject, projectEnablement, sessionNotes } from "../core/project.ts";
 import { REVIEW_CHILD_ENV } from "../core/review.ts";
 import { statusText } from "../core/status.ts";
-import { type Deps, HARNESS, readOverride } from "./context.ts";
+import { type Deps, readOverride } from "./context.ts";
 
 interface StatusInput {
 	session_id?: string;
@@ -19,7 +19,7 @@ export function statusSegment(input: StatusInput, d: Deps): string {
 		reviewChild: d.env[REVIEW_CHILD_ENV] === "1",
 	});
 	if (!en.enabled) return "";
-	return statusText(true, sessionNotes(project, HARNESS, input.session_id).length) ?? "";
+	return statusText(true, sessionNotes(project, d.agent.harness, input.session_id).length) ?? "";
 }
 
 /**

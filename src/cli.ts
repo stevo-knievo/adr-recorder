@@ -2,8 +2,6 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { claudeCodeMain } from "./claude-code/cli.ts";
-import type { Deps } from "./claude-code/context.ts";
 import { classifierFromConfig } from "./core/classifier-openai.ts";
 import {
 	decideEnablement,
@@ -19,6 +17,9 @@ import { nodeSystem } from "./core/launch/system.ts";
 import { findGitRoot, hasAdrFolder, resolveLayout } from "./core/layout.ts";
 import { startReview } from "./core/review-start.ts";
 import { type ExchangeResult, scanSession } from "./core/scan.ts";
+import { getHookAgent, type HookAgent } from "./hook-agent/agents.ts";
+import { hookAgentMain } from "./hook-agent/cli.ts";
+import type { Deps } from "./hook-agent/context.ts";
 
 const USAGE = `Usage: adr-recorder <command> [options]
 
@@ -28,6 +29,7 @@ Commands:
   status     Show the resolved layout, config and enablement for a project
   launchers  List review launchers and which one this terminal would use
   claude-code  Hooks, /adr and status line for the Claude Code plugin
+  codex      Hooks and /adr for the Codex plugin
   version    Print the version
 
 scan options:
@@ -97,17 +99,19 @@ export async function main(argv: string[], io: CliIO = defaultIO()): Promise<num
 				return await review(rest, io);
 			case "launchers":
 				return launchers(io);
-			case "claude-code":
-				return await claudeCodeMain(rest, claudeDeps(io), io.stdin ?? (async () => ""));
 			case undefined:
 			case "help":
 			case "--help":
 			case "-h":
 				io.out(USAGE);
 				return 0;
-			default:
+			default: {
+				const agent = getHookAgent(command);
+				if (agent)
+					return await hookAgentMain(rest, hookDeps(agent, io), io.stdin ?? (async () => ""));
 				io.err(`Unknown command: ${command}\n${USAGE}`);
 				return 2;
+			}
 		}
 	} catch (e) {
 		io.err(`${(e as Error).message}\n`);
@@ -115,8 +119,9 @@ export async function main(argv: string[], io: CliIO = defaultIO()): Promise<num
 	}
 }
 
-function claudeDeps(io: CliIO): Deps {
+function hookDeps(agent: HookAgent, io: CliIO): Deps {
 	return {
+		agent,
 		env: io.env,
 		home: io.home,
 		stateDir: stateDir({ home: io.home, env: io.env }),

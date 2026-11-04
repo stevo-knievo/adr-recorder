@@ -13,10 +13,11 @@ Code plugin (this repo is both) and a Node CLI. TypeScript only, no build step.
 
 - `src/core/` must not import `@earendil-works/*`, `typebox`, or any adapter folder.
   `test/core/boundary.test.ts` enforces this.
-- Only `src/pi/` imports pi. `src/claude-code/` and the CLI build on core.
+- Only `src/pi/` imports pi. `src/hook-agent/` (Claude Code, Codex) and the
+  CLI build on core.
   Adapters never import each other (same test).
 - pi packages we import are optional `peerDependencies: "*"`, never
-  `dependencies`. Optional, because the Claude Code plugin installs
+  `dependencies`. Optional, because the Claude Code and Codex plugins install
   production deps from the lockfile and must not pull pi in. Runtime deps stay
   `jiti` and `yaml`.
 

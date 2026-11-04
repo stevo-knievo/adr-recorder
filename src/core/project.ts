@@ -9,6 +9,7 @@ import {
 	loadConfig,
 	missingSettings,
 	REPO_CONFIG_FILE,
+	reviewerModelFor,
 } from "./config.ts";
 import { findGitRoot, hasAdrFolder, type Layout, resolveLayout } from "./layout.ts";
 import { type BacklogEntry, type Note, noteId, readBacklog, writeNote } from "./notes.ts";
@@ -66,7 +67,7 @@ export function statusReport(
 		`ADR recorder: ${en.enabled ? "on" : "off"} (${en.reason})`,
 		`adr_dir: ${p.layout.adrDir} (${p.layout.source}), backlog ${p.layout.backlogDir}`,
 		`notes this session: ${notes.length}, open in repo: ${openNotes(p.layout).length}`,
-		`models: classifier=${p.config.classifier_model ?? "-"} reviewer=${p.config.reviewer_model ?? "-"}`,
+		`models: classifier=${p.config.classifier_model ?? "-"} reviewer=${reviewerModelFor(p.config, p.config.review_harness ?? session.harness) ?? "-"}`,
 		`auto_review: ${p.config.auto_review}`,
 		...(missing.length ? [`missing: ${missing.join(", ")}`] : []),
 		...p.configErrors.map((e) => `config error: ${e}`),
