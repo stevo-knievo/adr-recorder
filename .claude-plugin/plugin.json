@@ -6,5 +6,6 @@
 		"name": "Stefan Koch"
 	},
 	"repository": "https://github.com/stevo-knievo/adr-recorder",
-	"keywords": ["adr", "architecture-decision-records", "documentation"]
+	"keywords": ["adr", "architecture-decision-records", "documentation"],
+	"license": "MIT"
 }

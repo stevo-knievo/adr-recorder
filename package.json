@@ -46,5 +46,10 @@
 		"@types/node": "^24.0.0",
 		"typescript": "^5.9.0",
 		"vitest": "^4.0.0"
+	},
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/stevo-knievo/adr-recorder.git"
 	}
 }
