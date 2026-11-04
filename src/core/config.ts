@@ -31,8 +31,12 @@ export interface Config {
 	enabled_paths: string[];
 	disabled_paths: string[];
 	auto_review: AutoReview;
-	/** Command template for the review hand-off. User config only. */
+	/** Where a review opens when a session quits: a launcher name or "auto". User config only. */
+	review_launcher: string;
+	/** Template for review_launcher: command. User config only. */
 	review_command?: string;
+	/** Agent that runs the review. Defaults to the harness the session ran in. User config only. */
+	review_harness?: string;
 	repo: RepoConfig;
 }
 
@@ -52,6 +56,11 @@ export function userConfigPath({ home, env }: ConfigEnv): string {
 	if (env.ADR_RECORDER_CONFIG) return env.ADR_RECORDER_CONFIG;
 	const base = env.XDG_CONFIG_HOME || join(home, ".config");
 	return join(base, "adr-recorder", "adr-recorder.yaml");
+}
+
+/** Logs, prompt files and bookkeeping. Never committed. */
+export function stateDir({ home, env }: ConfigEnv): string {
+	return join(env.XDG_STATE_HOME || join(home, ".local", "state"), "adr-recorder");
 }
 
 export function expandHome(p: string, home: string): string {
@@ -101,6 +110,16 @@ function repoPart(y: Record<string, unknown>): RepoConfig {
 	return out;
 }
 
+/** Settings that run commands or send data somewhere. A repo file can't set them. */
+export const USER_ONLY_KEYS = [
+	"model_endpoint",
+	"review_launcher",
+	"review_command",
+	"review_harness",
+	"enabled_paths",
+	"disabled_paths",
+] as const;
+
 /**
  * Merge user config and repo config. The repo file may set models and layout.
  * Settings that run commands or decide where transcripts go
@@ -130,10 +149,9 @@ export function loadConfig(envIn: ConfigEnv, repoRoot?: string): LoadedConfig {
 		if (base && key) endpoint = { base_url: base.replace(/\/+$/, ""), api_key_env: key };
 		else errors.push(`${userFile}: model_endpoint needs base_url and api_key_env`);
 	}
-	if (repo?.model_endpoint || repo?.review_command) {
-		errors.push(
-			`${REPO_CONFIG_FILE}: model_endpoint and review_command are only read from ${userFile}`,
-		);
+	const userOnly = USER_ONLY_KEYS.filter((k) => repo?.[k] !== undefined);
+	if (userOnly.length) {
+		errors.push(`${REPO_CONFIG_FILE}: ${userOnly.join(", ")} are only read from ${userFile}`);
 	}
 
 	const autoRaw = str(r.auto_review) ?? str(u.auto_review) ?? "on";
@@ -146,7 +164,9 @@ export function loadConfig(envIn: ConfigEnv, repoRoot?: string): LoadedConfig {
 		enabled_paths: strList(u.enabled_paths).map((p) => expandHome(p, envIn.home)),
 		disabled_paths: strList(u.disabled_paths).map((p) => expandHome(p, envIn.home)),
 		auto_review,
+		review_launcher: str(u.review_launcher) ?? (str(u.review_command) ? "command" : "auto"),
 		review_command: str(u.review_command),
+		review_harness: str(u.review_harness),
 		repo: { ...repoPart(u), ...repoPart(r) },
 	};
 	return { config, sources, errors };

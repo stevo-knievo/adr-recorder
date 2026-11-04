@@ -158,6 +158,9 @@ export interface BacklogEntry {
 	id: string;
 	status: string;
 	decision: string;
+	harness: string;
+	/** Transcript path as stored, usually ~-relative. */
+	sessionFile: string;
 }
 
 /** Notes in one backlog folder. Files starting with "_" are reports, not notes. */
@@ -179,6 +182,8 @@ export function readBacklog(root: string, backlogDir: string): BacklogEntry[] {
 			id: String(parsed.meta.id ?? ""),
 			status: String(parsed.meta.status ?? ""),
 			decision: parsed.sections.Decision ?? "",
+			harness: String(parsed.meta.harness ?? ""),
+			sessionFile: String(parsed.meta.session_file ?? ""),
 		});
 	}
 	return out;

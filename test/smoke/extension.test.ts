@@ -51,7 +51,7 @@ function sandbox(config: string): Sandbox {
 		const stub = join(bin, name);
 		writeFileSync(
 			stub,
-			`#!/bin/sh\n{ echo "ADR_REVIEW_CHILD=$ADR_REVIEW_CHILD"; echo "PWD=$PWD"; for a in "$@"; do echo "ARG:$a"; done; } > "${calls}/${name}.txt"\n`,
+			`#!/bin/sh\n{ echo "ADR_REVIEW_CHILD=$ADR_REVIEW_CHILD"; echo "PWD=$PWD"; for a in "$@"; do echo "ARG:$a"; done; } > "${calls}/${name}.txt"\n[ -n "$STUB_FAIL" ] && { echo "stub failed" >&2; exit 3; }\nexit 0\n`,
 		);
 		chmodSync(stub, 0o755);
 	}
@@ -61,7 +61,18 @@ function sandbox(config: string): Sandbox {
 		ADR_RECORDER_CONFIG: join(base, "config.yaml"),
 		XDG_STATE_HOME: join(base, "state"),
 	};
-	delete env.ADR_REVIEW_CHILD;
+	// Tests run inside real hosts; hide them so `auto` sees a plain terminal.
+	for (const k of [
+		"ADR_REVIEW_CHILD",
+		"REX_SESSION",
+		"HERDR_ENV",
+		"TMUX",
+		"ZELLIJ",
+		"WEZTERM_PANE",
+		"KITTY_LISTEN_ON",
+	]) {
+		delete env[k];
+	}
 	return {
 		repo,
 		bin,
@@ -129,25 +140,33 @@ describe.skipIf(skip)("pi extension", () => {
 		expect(call).toMatch(/headless run/);
 	});
 
-	it("uses review_command when set", async () => {
-		const sb = sandbox(`${MODELS}review_command: rex run --cwd {cwd} -- sh -ic {command}\n`);
-		sb.run("/adr note We use Postgres for storage");
+	it("inside Rex, quitting opens the reviewer in a new block", async () => {
+		const sb = sandbox(MODELS);
+		sb.run("/adr note We use Postgres for storage", { REX_SESSION: "test" });
 		const call = await sb.waitForCall("rex");
-		expect(call).toMatch(/ARG:--cwd/);
+		expect(call).toMatch(/ARG:run\nARG:--cwd/);
 		expect(call).toMatch(new RegExp(`ARG:${sb.repo}`));
-		expect(call).toMatch(/ARG:ADR_REVIEW_CHILD=1 pi --model 'test\/reviewer'/);
+		expect(call).toMatch(/ARG:-ic\nARG:cd .* && ADR_REVIEW_CHILD=1 pi --model 'test\/reviewer'/);
 		expect(existsSync(join(sb.calls, "pi.txt"))).toBe(false);
 	});
 
-	it("a template can fall back to the headless run", async () => {
-		const sb = sandbox(
-			`${MODELS}review_command: 'if [ -n "$NO_SUCH_VAR_X" ]; then rex run -- {command}; else {headless}; fi'\n`,
-		);
-		sb.run("/adr note We use Postgres for storage");
+	it("falls back to headless when the host fails", async () => {
+		const sb = sandbox(`${MODELS}review_launcher: rex\n`);
+		sb.run("/adr note We use Postgres for storage", { STUB_FAIL: "1" });
+		expect(await sb.waitForCall("rex")).toBeDefined();
 		const call = await sb.waitForCall("pi");
 		expect(call).toMatch(/ARG:-p/);
 		expect(call).toMatch(/headless run/);
-		expect(existsSync(join(sb.calls, "rex.txt"))).toBe(false);
+	});
+
+	it("uses review_command for other hosts", async () => {
+		const sb = sandbox(`${MODELS}review_command: rex run --cwd {cwd} -- sh -ic {command}\n`);
+		sb.run("/adr note We use Postgres for storage", { REX_SESSION: "ignored" });
+		const call = await sb.waitForCall("rex");
+		expect(call).toMatch(
+			/ARG:sh\nARG:-ic\nARG:cd .* && ADR_REVIEW_CHILD=1 pi --model 'test\/reviewer'/,
+		);
+		expect(existsSync(join(sb.calls, "pi.txt"))).toBe(false);
 	});
 
 	it("auto_review off and review children start no review", async () => {

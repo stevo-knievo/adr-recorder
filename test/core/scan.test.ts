@@ -2,9 +2,10 @@ import { copyFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } fro
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createOpenAIClassifier, endpointModelId } from "../../src/core/classifier-openai.ts";
+import { findPiSessions } from "../../src/core/harness/pi.ts";
 import { resolveLayout } from "../../src/core/layout.ts";
 import { parseNote } from "../../src/core/notes.ts";
-import { findPiSessions, scanSession, tildify, touchedPaths } from "../../src/core/scan.ts";
+import { scanSession, tildify, touchedPaths } from "../../src/core/scan.ts";
 import {
 	decision,
 	fakeClassifier,

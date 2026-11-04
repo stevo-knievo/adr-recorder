@@ -2,7 +2,8 @@ import { cpSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Classification, Classifier, ClassifierInput } from "../src/core/detect.ts";
-import { parsePiSession } from "../src/core/transcript.ts";
+import { parsePiSession } from "../src/core/harness/pi.ts";
+import type { RunResult, System } from "../src/core/launch/index.ts";
 import type { Session } from "../src/core/types.ts";
 
 export const FIXTURES = new URL("./fixtures/", import.meta.url).pathname;
@@ -49,4 +50,25 @@ export function fakeClassifier(answers: Record<string, Answer>, fallback?: Answe
 		},
 	};
 	return { classifier, calls };
+}
+
+/** System that records calls. `answers` maps argv[0] (or "argv0 argv1") to a result. */
+export function fakeSystem(
+	env: Record<string, string | undefined> = {},
+	answers: Record<string, Partial<RunResult>> = {},
+) {
+	const runs: string[][] = [];
+	const detached: { argv: string[]; cwd?: string; logFile?: string }[] = [];
+	const sys: System = {
+		env: { SHELL: "/bin/zsh", ...env },
+		async run(argv) {
+			runs.push(argv);
+			const a = answers[`${argv[0]} ${argv[1]}`] ?? answers[argv[0] ?? ""] ?? {};
+			return { code: 0, stdout: "", stderr: "", ...a };
+		},
+		spawnDetached(argv, opts = {}) {
+			detached.push({ argv, ...opts });
+		},
+	};
+	return { sys, runs, detached };
 }

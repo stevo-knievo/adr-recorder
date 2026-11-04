@@ -7,6 +7,7 @@ import {
 	expandHome,
 	loadConfig,
 	missingSettings,
+	stateDir,
 	userConfigPath,
 } from "../../src/core/config.ts";
 import { tempRepo } from "../helpers.ts";
@@ -42,6 +43,8 @@ describe("loadConfig", () => {
 			reviewer_model: "example/strong",
 			model_endpoint: { base_url: "https://example.test/v1", api_key_env: "TEST_KEY" },
 			review_command: "my-agent --model {model} {prompt}",
+			// review_command alone implies the command launcher
+			review_launcher: "command",
 			auto_review: "ask",
 		});
 		expect(config.enabled_paths[0]).toMatch(/\/code\/work\/\*\*$/);
@@ -60,7 +63,19 @@ describe("loadConfig", () => {
 		expect(config.repo.ignore).toEqual(["examples/**"]);
 		expect(config.model_endpoint?.base_url).toBe("https://example.test/v1");
 		expect(config.review_command).toBe("my-agent --model {model} {prompt}");
-		expect(errors.join("\n")).toMatch(/only read from/);
+		expect(errors.join("\n")).toMatch(/model_endpoint, review_command are only read from/);
+	});
+
+	it("review_launcher, review_harness and stateDir", () => {
+		const { config } = setup("review_launcher: herdr\nreview_harness: other\n");
+		expect(config.review_launcher).toBe("herdr");
+		expect(config.review_harness).toBe("other");
+		expect(setup("").config.review_launcher).toBe("auto");
+		const { config: c2, errors } = setup("", "review_launcher: rex\nenabled_paths: [x]\n");
+		expect(c2.review_launcher).toBe("auto");
+		expect(errors.join("\n")).toMatch(/review_launcher, enabled_paths are only read from/);
+		expect(stateDir({ home: "/h", env: {} })).toBe("/h/.local/state/adr-recorder");
+		expect(stateDir({ home: "/h", env: { XDG_STATE_HOME: "/s" } })).toBe("/s/adr-recorder");
 	});
 
 	it("reports broken YAML and incomplete endpoints instead of throwing", () => {
@@ -104,6 +119,7 @@ describe("decideEnablement", () => {
 		enabled_paths: ["/h/code/work/**"],
 		disabled_paths: ["/h/code/work/scratch/**"],
 		auto_review: "on",
+		review_launcher: "auto",
 		repo: {},
 	};
 	const run = (cwd: string, extra: Partial<Parameters<typeof decideEnablement>[0]> = {}) =>

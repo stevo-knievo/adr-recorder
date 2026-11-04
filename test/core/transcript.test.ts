@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { parsePiSession, readPiHeader, toExchanges } from "../../src/core/transcript.ts";
+import { parsePiSession, readPiHeader } from "../../src/core/harness/pi.ts";
+import { toExchanges } from "../../src/core/transcript.ts";
 import { loadSessionFixture } from "../helpers.ts";
 
 const line = (o: unknown) => JSON.stringify(o);

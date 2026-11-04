@@ -3,32 +3,49 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { createOpenAIClassifier, endpointModelId } from "./core/classifier-openai.ts";
-import { decideEnablement, loadConfig, missingSettings, userConfigPath } from "./core/config.ts";
-import type { Classifier } from "./core/detect.ts";
-import { findGitRoot, hasAdrFolder, resolveLayout } from "./core/layout.ts";
 import {
-	type ExchangeResult,
-	findPiSessions,
-	loadPiSession,
-	piSessionsDir,
-	scanSession,
-} from "./core/scan.ts";
+	decideEnablement,
+	loadConfig,
+	missingSettings,
+	stateDir,
+	userConfigPath,
+} from "./core/config.ts";
+import type { Classifier } from "./core/detect.ts";
+import {
+	getHarness,
+	listHarnesses,
+	PLANNED_HARNESSES,
+	type SessionSource,
+} from "./core/harness/index.ts";
+import { listLaunchers, pickLauncher, type System } from "./core/launch/index.ts";
+import { nodeSystem } from "./core/launch/system.ts";
+import { findGitRoot, hasAdrFolder, resolveLayout } from "./core/layout.ts";
+import { startReview } from "./core/review-start.ts";
+import { type ExchangeResult, scanSession } from "./core/scan.ts";
 
 const USAGE = `Usage: adr-recorder <command> [options]
 
 Commands:
-  scan      Find decisions in past sessions and write backlog notes
-  status    Show the resolved layout, config and enablement for a project
-  version   Print the version
+  scan       Find decisions in past sessions and write backlog notes
+  review     Open a reviewer for the open backlog notes
+  status     Show the resolved layout, config and enablement for a project
+  launchers  List review launchers and which one this terminal would use
+  version    Print the version
 
 scan options:
-  --harness <pi|claude-code|codex|all>  Session source (default: pi)
-  --path <dir>                          Project folder (default: current folder)
-  --since <YYYY-MM-DD>                  Only sessions started on or after this date
-  --session <file>                      Scan one session file instead of searching
-  --sessions-dir <dir>                  Override the pi sessions folder
-  --dry-run                             Classify, but don't write notes
-  --verbose                             Show every exchange, not only hits
+  --harness <name|all>   Session source (default: pi; see README for the list)
+  --path <dir>           Project folder (default: current folder)
+  --since <YYYY-MM-DD>   Only sessions started on or after this date
+  --session <file>       Scan one session file instead of searching
+  --sessions-dir <dir>   Override the harness's sessions folder
+  --dry-run              Classify, but don't write notes
+  --verbose              Show every exchange, not only hits
+
+review options:
+  --path <dir>           Project folder (default: current folder)
+  --launcher <name>      Override review_launcher (auto, headless, rex, ...)
+  --harness <name>       Agent that reviews (default: review_harness, else pi)
+  --dry-run              Print the plan, open nothing
 `;
 
 export interface CliIO {
@@ -39,6 +56,8 @@ export interface CliIO {
 	cwd: string;
 	/** Tests inject a fake classifier. */
 	classifier?: Classifier;
+	/** Tests inject a fake system for launchers. */
+	sys?: System;
 }
 
 const defaultIO = (): CliIO => ({
@@ -63,6 +82,10 @@ export async function main(argv: string[], io: CliIO = defaultIO()): Promise<num
 				return await scan(rest, io);
 			case "status":
 				return status(rest, io);
+			case "review":
+				return await review(rest, io);
+			case "launchers":
+				return launchers(io);
 			case undefined:
 			case "help":
 			case "--help":
@@ -106,6 +129,7 @@ function status(argv: string[], io: CliIO): number {
 		`statuses:  ${layout.statuses.join(", ")}`,
 		`config:    ${loaded.sources.join(", ") || `(none, expected ${userConfigPath({ home: io.home, env: io.env })})`}`,
 		`models:    classifier=${loaded.config.classifier_model ?? "-"} reviewer=${loaded.config.reviewer_model ?? "-"}`,
+		`review:    ${loaded.config.auto_review}, launcher ${launcherLine(loaded.config.review_launcher, io, loaded.config.review_command)}`,
 	];
 	if (missing.length) lines.push(`missing:   ${missing.join(", ")} (see README, "Configuration")`);
 	for (const e of loaded.errors) lines.push(`error:     ${e}`);
@@ -159,15 +183,8 @@ async function scan(argv: string[], io: CliIO): Promise<number> {
 			verbose: { type: "boolean", default: false },
 		},
 	});
-	const harness = values.harness ?? "pi";
-	if (harness === "claude-code" || harness === "codex") {
-		io.err(`--harness ${harness} is not supported yet.\n`);
-		return 2;
-	}
-	if (harness !== "pi" && harness !== "all") {
-		io.err(`Unknown harness: ${harness}\n`);
-		return 2;
-	}
+	const sources = pickSources(values.harness ?? "pi", io);
+	if (!sources) return 2;
 	let since: Date | undefined;
 	if (values.since) {
 		since = new Date(values.since);
@@ -181,13 +198,17 @@ async function scan(argv: string[], io: CliIO): Promise<number> {
 	const layout = resolveLayout(root, loaded.config.repo);
 	const classifier = buildClassifier(io, root);
 
-	const files = values.session
-		? [resolve(io.cwd, values.session)]
-		: findPiSessions(values["sessions-dir"] ?? piSessionsDir(io.env, io.home), root, since).map(
-				(s) => s.file,
-			);
+	const first = sources[0];
+	const files: { file: string; source: SessionSource }[] =
+		values.session && first
+			? [{ file: resolve(io.cwd, values.session), source: first }]
+			: sources.flatMap((src) =>
+					src
+						.findSessions(values["sessions-dir"] ?? src.sessionsDir(io.env, io.home), root, since)
+						.map((s) => ({ file: s.file, source: src })),
+				);
 	if (!files.length) {
-		io.out(`No pi sessions found for ${root}\n`);
+		io.out(`No ${sources.map((s) => s.name).join("/")} sessions found for ${root}\n`);
 		return 0;
 	}
 	io.out(
@@ -195,8 +216,8 @@ async function scan(argv: string[], io: CliIO): Promise<number> {
 	);
 
 	const totals: Record<string, number> = {};
-	for (const file of files) {
-		const session = loadPiSession(file);
+	for (const { file, source } of files) {
+		const session = source.loadSession(file);
 		const results = await scanSession(session, {
 			layout,
 			classifier,
@@ -214,4 +235,73 @@ async function scan(argv: string[], io: CliIO): Promise<number> {
 		.join(" ");
 	io.out(`Done: ${summary}\n`);
 	return totals.error ? 1 : 0;
+}
+
+function pickSources(name: string, io: CliIO): SessionSource[] | undefined {
+	if (name === "all") return listHarnesses().flatMap((h) => (h.sessions ? [h.sessions] : []));
+	const h = getHarness(name);
+	if (h?.sessions) return [h.sessions];
+	if (PLANNED_HARNESSES.includes(name)) io.err(`--harness ${name} is not supported yet.\n`);
+	else io.err(`Unknown harness: ${name}\n`);
+	return undefined;
+}
+
+function launcherLine(name: string, io: CliIO, template?: string): string {
+	try {
+		const l = pickLauncher(name, io.env, template);
+		return name === l.name ? name : `${name} -> ${l.name}`;
+	} catch (e) {
+		return `error: ${(e as Error).message}`;
+	}
+}
+
+function launchers(io: CliIO): number {
+	const auto = pickLauncher("auto", io.env).name;
+	for (const l of listLaunchers()) {
+		const mark = l.name === auto ? "*" : " ";
+		io.out(`${mark} ${l.name.padEnd(9)} ${l.description}\n`);
+	}
+	io.out(
+		`  command   review_command from the user config\n* = what review_launcher: auto picks here\n`,
+	);
+	return 0;
+}
+
+async function review(argv: string[], io: CliIO): Promise<number> {
+	const { values } = parseArgs({
+		args: argv,
+		options: {
+			path: { type: "string" },
+			launcher: { type: "string" },
+			harness: { type: "string" },
+			"dry-run": { type: "boolean", default: false },
+		},
+	});
+	const root = projectRoot(values.path, io);
+	const loaded = loadConfig({ home: io.home, env: io.env }, root);
+	for (const e of loaded.errors) io.err(`config: ${e}\n`);
+	const config = values.harness
+		? { ...loaded.config, review_harness: values.harness }
+		: loaded.config;
+	const started = await startReview({
+		layout: resolveLayout(root, config.repo),
+		config,
+		sys: io.sys ?? nodeSystem(io.env),
+		home: io.home,
+		stateDir: stateDir({ home: io.home, env: io.env }),
+		launcher: values.launcher,
+		dryRun: values["dry-run"],
+	});
+	if (!started) {
+		io.out("No open notes in the backlog.\n");
+		return 0;
+	}
+	io.out(`${started.notes} open note(s); report ${started.reportPath}\n`);
+	if (started.fallbackReason)
+		io.err(`launcher failed (${started.fallbackReason}); running headless\n`);
+	io.out(`launcher: ${started.launcher}, ${started.where}\n`);
+	if (values["dry-run"]) {
+		io.out(`command:  ${started.job.command}\nheadless: ${started.job.headlessCommand}\n`);
+	}
+	return 0;
 }

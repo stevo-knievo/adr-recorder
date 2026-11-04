@@ -1,19 +1,17 @@
-import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { piSessionFromBranch } from "../../src/core/harness/pi.ts";
 import { resolveLayout } from "../../src/core/layout.ts";
 import {
-	buildReviewLaunch,
 	buildReviewPrompt,
 	listReviewReports,
 	openNotes,
 	REVIEW_MARKER,
 	reviewReportPath,
-	shq,
 } from "../../src/core/review.ts";
 import { scanSession } from "../../src/core/scan.ts";
-import { piSessionFromBranch, toExchanges } from "../../src/core/transcript.ts";
+import { toExchanges } from "../../src/core/transcript.ts";
 import {
 	decision,
 	fakeClassifier,
@@ -98,60 +96,6 @@ describe("listReviewReports", () => {
 
 	it("returns nothing without a backlog", () => {
 		expect(listReviewReports(resolveLayout(tempRepo("none")))).toEqual([]);
-	});
-});
-
-describe("buildReviewLaunch", () => {
-	const base = { cwd: "/repo it's", model: "p/m", promptFile: "/tmp/p.md", logFile: "/tmp/l.log" };
-
-	it("runs pi headless by default with the recursion guard", () => {
-		const l = buildReviewLaunch(base);
-		expect(l.env).toEqual({ ADR_REVIEW_CHILD: "1" });
-		expect(l.shell).toBe(
-			`cd '/repo it'\\''s' && ADR_REVIEW_CHILD=1 pi -p --model 'p/m' "$(cat '/tmp/p.md')" > '/tmp/l.log' 2>&1`,
-		);
-	});
-
-	it("fills a template with quoted values", () => {
-		const l = buildReviewLaunch({
-			...base,
-			template: "rex run --cwd {cwd} -- $SHELL -ic {command}",
-		});
-		expect(l.shell).toBe(
-			`rex run --cwd '/repo it'\\''s' -- $SHELL -ic ${shq(`ADR_REVIEW_CHILD=1 pi --model 'p/m' "$(cat '/tmp/p.md')"`)}`,
-		);
-	});
-
-	it("offers the headless run as a template fallback", () => {
-		const l = buildReviewLaunch({
-			...base,
-			headlessPromptFile: "/tmp/h.md",
-			template: 'if [ -n "$REX_SESSION" ]; then rex run -- {command}; else {headless}; fi',
-		});
-		expect(l.shell).toContain(`else { cd '/repo it'\\''s' && ADR_REVIEW_CHILD=1 pi -p`);
-		expect(l.shell).toContain(`"$(cat '/tmp/h.md')"`);
-		expect(l.shell).toContain(shq(`ADR_REVIEW_CHILD=1 pi --model 'p/m' "$(cat '/tmp/p.md')"`));
-	});
-
-	it("survives a real shell round trip", () => {
-		const dir = tempRepo("none");
-		const promptFile = join(dir, "prompt.md");
-		writeFileSync(promptFile, `Say "hi" and it's $HOME \`x\``);
-		const bin = join(dir, "bin");
-		mkdirSync(bin);
-		const stub = join(bin, "pi");
-		writeFileSync(stub, `#!/bin/sh\nfor a in "$@"; do echo "[$a]"; done\n`, { mode: 0o755 });
-		const l = buildReviewLaunch({
-			cwd: dir,
-			model: "p/m",
-			promptFile,
-			logFile: join(dir, "out.log"),
-			piBin: stub,
-		});
-		execFileSync("sh", ["-c", l.shell]);
-		expect(readFileSync(join(dir, "out.log"), "utf8")).toBe(
-			'[-p]\n[--model]\n[p/m]\n[Say "hi" and it\'s $HOME `x`]\n',
-		);
 	});
 });
 

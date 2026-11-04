@@ -1,6 +1,5 @@
-import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Document, parseDocument } from "yaml";
@@ -10,23 +9,25 @@ import {
 	loadConfig,
 	missingSettings,
 	REPO_CONFIG_FILE,
+	stateDir as stateDirFor,
 	userConfigPath,
 } from "../core/config.ts";
 import type { Classifier } from "../core/detect.ts";
+import { piSessionFromBranch } from "../core/harness/pi.ts";
+import { nodeSystem } from "../core/launch/system.ts";
 import { findGitRoot, hasAdrFolder, type Layout, resolveLayout } from "../core/layout.ts";
 import { type Note, noteId, readBacklog, writeNote } from "../core/notes.ts";
 import {
-	buildReviewLaunch,
-	buildReviewPrompt,
 	listReviewReports,
 	openNotes,
+	prepareReview,
 	REVIEW_CHILD_ENV,
 	REVIEW_MARKER,
-	reviewReportPath,
 } from "../core/review.ts";
+import { startReview } from "../core/review-start.ts";
 import { type ExchangeResult, scanSession, tildify } from "../core/scan.ts";
 import { statusText } from "../core/status.ts";
-import { piSessionFromBranch, toExchanges } from "../core/transcript.ts";
+import { toExchanges } from "../core/transcript.ts";
 import type { Session } from "../core/types.ts";
 import { createPiClassifier } from "./classifier.ts";
 
@@ -52,9 +53,8 @@ interface State {
 
 const home = homedir();
 
-function stateDir(): string {
-	return join(process.env.XDG_STATE_HOME || join(home, ".local", "state"), "adr-recorder");
-}
+const configEnv = () => ({ home, env: process.env });
+const stateDir = () => stateDirFor(configEnv());
 
 function branchSession(ctx: ExtensionContext): Session {
 	const sm = ctx.sessionManager;
@@ -193,61 +193,6 @@ function writeRepoAdrDir(root: string, dir: string) {
 	} else writeFileSync(file, new Document({ adr_dir: dir }).toString());
 }
 
-function expandTilde(p: string) {
-	return p.startsWith("~/") ? join(home, p.slice(2)) : p;
-}
-
-function reviewInputs(st: State, headless: boolean) {
-	const notes = openNotes(st.layout);
-	const sessionFiles = new Set<string>();
-	for (const n of notes) {
-		const text = readFileSync(join(st.root, n.file), "utf8");
-		const m = text.match(/^session_file:\s*(.+)$/m);
-		if (m?.[1]) sessionFiles.add(expandTilde(m[1].trim()));
-	}
-	const reportPath = reviewReportPath(st.layout, new Date());
-	const prompt = buildReviewPrompt({
-		layout: st.layout,
-		notes,
-		sessionFiles: [...sessionFiles],
-		reportPath,
-		headless,
-	});
-	return { notes, prompt, reportPath };
-}
-
-/** Hand the review to a separate process. Used on quit, when this pi can't host it. */
-function launchReview(st: State): string | undefined {
-	const model = st.config.reviewer_model;
-	if (!model) return undefined;
-	const interactive = reviewInputs(st, false);
-	if (!interactive.notes.length) return undefined;
-	const headless = reviewInputs(st, true);
-	const stamp = Date.now().toString(36);
-	const promptFile = join(tmpdir(), `adr-recorder-review-${stamp}.md`);
-	const headlessPromptFile = join(tmpdir(), `adr-recorder-review-${stamp}-headless.md`);
-	writeFileSync(promptFile, interactive.prompt);
-	writeFileSync(headlessPromptFile, headless.prompt);
-	const logDir = stateDir();
-	mkdirSync(logDir, { recursive: true });
-	const launch = buildReviewLaunch({
-		template: st.config.review_command,
-		cwd: st.root,
-		model,
-		promptFile,
-		headlessPromptFile,
-		logFile: join(logDir, `review-${stamp}.log`),
-	});
-	const child = spawn("sh", ["-c", launch.shell], {
-		cwd: st.root,
-		detached: true,
-		stdio: "ignore",
-		env: { ...process.env, ...launch.env },
-	});
-	child.unref();
-	return headless.reportPath;
-}
-
 function seenFile() {
 	return join(stateDir(), "seen-reviews.json");
 }
@@ -360,9 +305,21 @@ export default function adrRecorder(pi: ExtensionAPI) {
 			});
 			if (!ok) return;
 		}
-		if (launchReview(s)) {
-			reviewed[s.sessionId] = [...done, ...open.map((n) => n.id)];
-			writeJson(launchedFile(), reviewed);
+		try {
+			const started = await startReview({
+				layout: s.layout,
+				config: s.config,
+				harness: "pi",
+				sys: nodeSystem(),
+				home,
+				stateDir: stateDir(),
+			});
+			if (started) {
+				reviewed[s.sessionId] = [...done, ...open.map((n) => n.id)];
+				writeJson(launchedFile(), reviewed);
+			}
+		} catch (e) {
+			if (ctx.hasUI) ctx.ui.notify(`ADR review not started: ${(e as Error).message}`, "warning");
 		}
 	});
 
@@ -449,7 +406,11 @@ export default function adrRecorder(pi: ExtensionAPI) {
 							"warning",
 						);
 					}
-					const { notes, prompt } = reviewInputs(s, false);
+					const { notes, prompt } = prepareReview(s.layout, {
+						headless: false,
+						now: new Date(),
+						home,
+					});
 					if (!notes.length) return say("ADR backlog has no open notes");
 					s.reviewRequested = true;
 					const ask = [

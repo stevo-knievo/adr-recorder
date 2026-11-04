@@ -1,5 +1,5 @@
-export const HARNESSES = ["pi", "claude-code", "codex"] as const;
-export type Harness = (typeof HARNESSES)[number];
+/** Name of the agent a session came from, e.g. "pi". See src/core/harness/. */
+export type Harness = string;
 
 /** Routing table targets, see docs/how-to-document.md. */
 export const TARGETS = [

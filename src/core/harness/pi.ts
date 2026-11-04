@@ -1,0 +1,226 @@
+import { closeSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
+import { REVIEW_CHILD_ENV } from "../review.ts";
+import { shq } from "../shell.ts";
+import type { Session, ToolCall, Turn } from "../types.ts";
+import type {
+	Env,
+	FoundSession,
+	HarnessAdapter,
+	ReviewerAgent,
+	ReviewerRun,
+	SessionSource,
+} from "./types.ts";
+
+interface PiEntry {
+	type?: string;
+	id?: string;
+	parentId?: string | null;
+	timestamp?: string;
+	cwd?: string;
+	message?: { role?: string; content?: unknown };
+}
+
+interface Block {
+	type?: string;
+	text?: string;
+	name?: string;
+	arguments?: unknown;
+}
+
+function parseLines(text: string): PiEntry[] {
+	const out: PiEntry[] = [];
+	for (const line of text.split("\n")) {
+		const t = line.trim();
+		if (!t) continue;
+		try {
+			out.push(JSON.parse(t));
+		} catch {
+			// The last line can be half-written while pi is still running.
+		}
+	}
+	return out;
+}
+
+/** Entries on the active branch: walk parentId back from the last entry. */
+function activeBranch(entries: PiEntry[]): PiEntry[] {
+	const body = entries.filter((e) => e.type !== "session");
+	const byId = new Map<string, PiEntry>();
+	for (const e of body) if (e.id) byId.set(e.id, e);
+	const last = [...body].reverse().find((e) => e.id);
+	if (!last) return body; // v1 sessions have no ids
+	const branch: PiEntry[] = [];
+	const seen = new Set<string>();
+	let cur: PiEntry | undefined = last;
+	while (cur?.id && !seen.has(cur.id)) {
+		seen.add(cur.id);
+		branch.push(cur);
+		cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+	}
+	return branch.reverse();
+}
+
+function toTurn(e: PiEntry, index: number): Turn | undefined {
+	if (e.type !== "message" || !e.message) return undefined;
+	const role = e.message.role;
+	if (role !== "user" && role !== "assistant") return undefined;
+	const content = e.message.content;
+	const blocks: Block[] =
+		typeof content === "string"
+			? [{ type: "text", text: content }]
+			: Array.isArray(content)
+				? content
+				: [];
+	const text = blocks
+		.filter((b) => b.type === "text" && typeof b.text === "string")
+		.map((b) => b.text as string)
+		.join("\n")
+		.trim();
+	const toolCalls: ToolCall[] = blocks
+		.filter((b) => b.type === "toolCall" && typeof b.name === "string")
+		.map((b) => ({ name: b.name as string, args: asArgs(b.arguments) }));
+	if (role === "user" && !text) return undefined;
+	return { role, text, toolCalls, ts: e.timestamp ?? "", anchor: e.id ?? `#${index}` };
+}
+
+function asArgs(v: unknown): Record<string, unknown> {
+	if (typeof v === "string") {
+		try {
+			return asArgs(JSON.parse(v));
+		} catch {
+			return { raw: v };
+		}
+	}
+	return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+}
+
+export function parsePiSession(text: string, file: string): Session {
+	const entries = parseLines(text);
+	const header = entries.find((e) => e.type === "session");
+	if (!header) throw new Error(`not a pi session file: ${file}`);
+	const turns = activeBranch(entries)
+		.map(toTurn)
+		.filter((t): t is Turn => t !== undefined);
+	return {
+		harness: "pi",
+		id: header.id ?? file,
+		file,
+		cwd: header.cwd ?? "",
+		started: header.timestamp ?? "",
+		turns,
+	};
+}
+
+/**
+ * Build a session from entries that are already the active branch, as pi's
+ * session manager returns them. Used by the live extension.
+ */
+export function piSessionFromBranch(
+	header: { id?: string; cwd?: string; timestamp?: string } | undefined,
+	branch: unknown[],
+	file: string,
+): Session {
+	const turns = (branch as PiEntry[])
+		.filter((e) => e && e.type !== "session")
+		.map(toTurn)
+		.filter((t): t is Turn => t !== undefined);
+	return {
+		harness: "pi",
+		id: header?.id ?? file,
+		file,
+		cwd: header?.cwd ?? "",
+		started: header?.timestamp ?? "",
+		turns,
+	};
+}
+
+/** Header only, without parsing the whole file. */
+export function readPiHeader(
+	firstLine: string,
+): { id: string; cwd: string; timestamp: string } | undefined {
+	try {
+		const h = JSON.parse(firstLine) as PiEntry;
+		if (h.type !== "session") return undefined;
+		return { id: h.id ?? "", cwd: h.cwd ?? "", timestamp: h.timestamp ?? "" };
+	} catch {
+		return undefined;
+	}
+}
+
+export function piSessionsDir(env: Env, home: string): string {
+	if (env.PI_CODING_AGENT_SESSION_DIR) return env.PI_CODING_AGENT_SESSION_DIR;
+	const agentDir = env.PI_CODING_AGENT_DIR || join(home, ".pi", "agent");
+	return join(agentDir, "sessions");
+}
+
+function firstLine(file: string): string {
+	const fd = openSync(file, "r");
+	try {
+		const buf = Buffer.alloc(64 * 1024);
+		const n = readSync(fd, buf, 0, buf.length, 0);
+		const s = buf.subarray(0, n).toString("utf8");
+		const nl = s.indexOf("\n");
+		return nl < 0 ? s : s.slice(0, nl);
+	} finally {
+		closeSync(fd);
+	}
+}
+
+const within = (child: string, parent: string) =>
+	child === parent || child.startsWith(parent + sep);
+
+/**
+ * pi sessions whose cwd is the project or a folder inside it. The folder name
+ * encoding is lossy, so read each header instead of decoding names.
+ */
+export function findPiSessions(
+	sessionsRoot: string,
+	projectPath: string,
+	since?: Date,
+): FoundSession[] {
+	const project = resolve(projectPath);
+	const out: FoundSession[] = [];
+	let dirs: string[];
+	try {
+		dirs = readdirSync(sessionsRoot);
+	} catch {
+		return [];
+	}
+	for (const d of dirs) {
+		const abs = join(sessionsRoot, d);
+		let files: string[];
+		try {
+			if (!statSync(abs).isDirectory()) continue;
+			files = readdirSync(abs).filter((f) => f.endsWith(".jsonl"));
+		} catch {
+			continue;
+		}
+		for (const f of files) {
+			const file = join(abs, f);
+			const h = readPiHeader(firstLine(file));
+			if (!h?.cwd || !within(resolve(h.cwd), project)) continue;
+			if (since && h.timestamp && new Date(h.timestamp) < since) continue;
+			out.push({ harness: "pi", file, id: h.id, cwd: h.cwd, started: h.timestamp });
+		}
+	}
+	return out.sort((a, b) => a.started.localeCompare(b.started));
+}
+
+const promptArg = (run: ReviewerRun) => `"$(cat ${shq(run.promptFile)})"`;
+
+export const piSessions: SessionSource = {
+	name: "pi",
+	sessionsDir: piSessionsDir,
+	findSessions: findPiSessions,
+	loadSession: (file) => parsePiSession(readFileSync(file, "utf8"), file),
+};
+
+export const piReviewer: ReviewerAgent = {
+	name: "pi",
+	reviewerCommand: (run) =>
+		`cd ${shq(run.cwd)} && ${REVIEW_CHILD_ENV}=1 pi --model ${shq(run.model)} ${promptArg(run)}`,
+	headlessReviewerCommand: (run) =>
+		`cd ${shq(run.cwd)} && ${REVIEW_CHILD_ENV}=1 pi -p --model ${shq(run.model)} ${promptArg(run)}`,
+};
+
+export const piHarness: HarnessAdapter = { name: "pi", sessions: piSessions, reviewer: piReviewer };

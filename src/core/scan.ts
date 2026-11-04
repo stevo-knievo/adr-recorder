@@ -1,5 +1,4 @@
-import { closeSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import {
 	type Classification,
 	type Classifier,
@@ -10,78 +9,11 @@ import {
 import { type Layout, listAdrs, pickFolder } from "./layout.ts";
 import { makeQuote, type Note, noteId, readBacklog, writeNote } from "./notes.ts";
 import { REVIEW_MARKER } from "./review.ts";
-import { parsePiSession, readPiHeader, toExchanges } from "./transcript.ts";
+import { toExchanges } from "./transcript.ts";
 import type { Exchange, Session } from "./types.ts";
-
-export function piSessionsDir(env: Record<string, string | undefined>, home: string): string {
-	if (env.PI_CODING_AGENT_SESSION_DIR) return env.PI_CODING_AGENT_SESSION_DIR;
-	const agentDir = env.PI_CODING_AGENT_DIR || join(home, ".pi", "agent");
-	return join(agentDir, "sessions");
-}
-
-function firstLine(file: string): string {
-	const fd = openSync(file, "r");
-	try {
-		const buf = Buffer.alloc(64 * 1024);
-		const n = readSync(fd, buf, 0, buf.length, 0);
-		const s = buf.subarray(0, n).toString("utf8");
-		const nl = s.indexOf("\n");
-		return nl < 0 ? s : s.slice(0, nl);
-	} finally {
-		closeSync(fd);
-	}
-}
 
 const within = (child: string, parent: string) =>
 	child === parent || child.startsWith(parent + sep);
-
-export interface FoundSession {
-	file: string;
-	id: string;
-	cwd: string;
-	started: string;
-}
-
-/**
- * pi sessions whose cwd is the project or a folder inside it. The folder name
- * encoding is lossy, so read each header instead of decoding names.
- */
-export function findPiSessions(
-	sessionsRoot: string,
-	projectPath: string,
-	since?: Date,
-): FoundSession[] {
-	const project = resolve(projectPath);
-	const out: FoundSession[] = [];
-	let dirs: string[];
-	try {
-		dirs = readdirSync(sessionsRoot);
-	} catch {
-		return [];
-	}
-	for (const d of dirs) {
-		const abs = join(sessionsRoot, d);
-		let files: string[];
-		try {
-			if (!statSync(abs).isDirectory()) continue;
-			files = readdirSync(abs).filter((f) => f.endsWith(".jsonl"));
-		} catch {
-			continue;
-		}
-		for (const f of files) {
-			const file = join(abs, f);
-			const h = readPiHeader(firstLine(file));
-			if (!h?.cwd || !within(resolve(h.cwd), project)) continue;
-			if (since && h.timestamp && new Date(h.timestamp) < since) continue;
-			out.push({ file, id: h.id, cwd: h.cwd, started: h.timestamp });
-		}
-	}
-	return out.sort((a, b) => a.started.localeCompare(b.started));
-}
-
-export function loadPiSession(file: string): Session {
-	return parsePiSession(readFileSync(file, "utf8"), file);
-}
 
 /** Repo-relative paths a decision is about: files the agent touched or the human named. */
 export function touchedPaths(ex: Exchange, sessionCwd: string, root: string): string[] {

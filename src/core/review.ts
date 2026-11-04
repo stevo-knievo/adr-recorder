@@ -94,59 +94,36 @@ Format: a short intro line, then one "### <note file>" section per note with "Pr
 ${changes}`;
 }
 
-/** POSIX shell single-quote. */
-export function shq(s: string): string {
-	return `'${s.replace(/'/g, `'\\''`)}'`;
+export interface PreparedReview {
+	notes: BacklogEntry[];
+	prompt: string;
+	reportPath: string;
+	sessionFiles: string[];
 }
 
-export interface ReviewLaunch {
-	/** Run with `sh -c`. */
-	shell: string;
-	env: Record<string, string>;
-}
-
-/**
- * Command line for a review agent. With a template from the user config,
- * fill it in; otherwise run pi headless in the background with a log.
- *
- * Template placeholders, all shell-quoted except {headless}:
- *   {cwd}         project root
- *   {model}       reviewer model
- *   {prompt_file} file holding the interactive review prompt
- *   {command}     the interactive pi command, for wrappers such as
- *                 `rex run --cwd {cwd} -- $SHELL -ic {command}`
- *   {headless}    the default background run, ready to use as a fallback:
- *                 `if [ -n "$REX_SESSION" ]; then ...; else {headless}; fi`
- */
-export function buildReviewLaunch(input: {
-	template?: string;
-	cwd: string;
-	model: string;
-	/** Prompt for an agent a human can talk to. */
-	promptFile: string;
-	/** Prompt for the background run; defaults to promptFile. */
-	headlessPromptFile?: string;
-	logFile: string;
-	piBin?: string;
-}): ReviewLaunch {
-	const pi = input.piBin ?? "pi";
-	const env = { [REVIEW_CHILD_ENV]: "1" };
-	const promptArg = (f: string) => `"$(cat ${shq(f)})"`;
-	const headless = `cd ${shq(input.cwd)} && ${REVIEW_CHILD_ENV}=1 ${pi} -p --model ${shq(input.model)} ${promptArg(input.headlessPromptFile ?? input.promptFile)} > ${shq(input.logFile)} 2>&1`;
-	if (!input.template) return { shell: headless, env };
-	const interactive = `${REVIEW_CHILD_ENV}=1 ${pi} --model ${shq(input.model)} ${promptArg(input.promptFile)}`;
-	const vars: Record<string, string> = {
-		cwd: shq(input.cwd),
-		model: shq(input.model),
-		prompt_file: shq(input.promptFile),
-		command: shq(interactive),
-		headless: `{ ${headless}; }`,
-	};
-	const shell = input.template.replace(
-		/\{(cwd|model|prompt_file|command|headless)\}/g,
-		(_, k: string) => vars[k] ?? "",
-	);
-	return { shell, env };
+/** Everything a reviewer needs, from the open notes in the backlog. */
+export function prepareReview(
+	layout: Layout,
+	opts: { headless: boolean; now: Date; home: string },
+): PreparedReview {
+	const notes = openNotes(layout);
+	const sessionFiles = [
+		...new Set(
+			notes
+				.map((n) => n.sessionFile)
+				.filter(Boolean)
+				.map((f) => (f.startsWith("~/") ? join(opts.home, f.slice(2)) : f)),
+		),
+	];
+	const reportPath = reviewReportPath(layout, opts.now);
+	const prompt = buildReviewPrompt({
+		layout,
+		notes,
+		sessionFiles,
+		reportPath,
+		headless: opts.headless,
+	});
+	return { notes, prompt, reportPath, sessionFiles };
 }
 
 /** Review reports in the main backlog folder, newest first. */
