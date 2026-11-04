@@ -1,5 +1,5 @@
 {
-	"description": "Each hook returns at once; classification runs in a detached worker.",
+	"description": "Each hook returns at once; classification runs in a detached worker. SessionStart may install the two runtime packages on first use, so it gets more time.",
 	"hooks": {
 		"SessionStart": [
 			{
@@ -7,7 +7,7 @@
 					{
 						"type": "command",
 						"command": "node \"${PLUGIN_ROOT}/bin/adr-recorder.js\" codex hook",
-						"timeout": 10
+						"timeout": 120
 					}
 				]
 			}

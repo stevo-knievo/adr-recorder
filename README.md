@@ -51,6 +51,20 @@ a local clone instead, run `npm install` in it and start
 `claude --plugin-dir <clone>`. See "In Claude Code" for the model endpoint
 and the status line.
 
+### Codex
+
+The same repo is a Codex plugin, and its marketplace file works for Codex too:
+
+```bash
+codex plugin marketplace add stevo-knievo/adr-recorder
+codex plugin add adr-recorder@adr-recorder
+```
+
+Codex doesn't install plugin packages, so the first hook installs the two
+runtime ones (`jiti`, `yaml`, 3 MB) into the plugin folder. That needs `npm`
+and takes a few seconds once. Codex asks you to review and trust the plugin's
+hooks before they run. See "In Codex".
+
 ### CLI
 
 ```bash
@@ -168,6 +182,30 @@ yourself. `--wrap` keeps the status line you have and appends to it:
 Use the full path to `bin/adr-recorder.js` if `adr-recorder` isn't on your
 PATH. Worker output goes to
 `~/.local/state/adr-recorder/claude-code/capture.log`.
+
+## In Codex
+
+The hooks match Claude Code's: `Stop` and `PreCompact` start a background
+worker, `SessionEnd` runs the last pass and the auto review, and
+`SessionStart` says "ADR review ready" after a headless review. Codex sends
+the same end reason for every way a session ends, so each end counts as a
+quit. The classifier goes through `model_endpoint`, as in Claude Code.
+
+Type `$adr status` (or `on`, `off`, `note <decision>`, `scan`, `review`).
+It's a skill, so Codex runs the command itself. The command writes its state
+under `~/.local/state/adr-recorder`, and `scan` calls the model endpoint.
+Both are outside Codex's sandbox, so Codex asks to run it with escalated
+permissions. If you'd rather not approve that every time, add the state
+folder to the sandbox's writable roots in `~/.codex/config.toml`
+(`scan` still needs network):
+
+```toml
+[sandbox_workspace_write]
+writable_roots = ["/home/you/.local/state/adr-recorder"] # your home
+```
+
+Codex has no status line command. Worker output goes to
+`~/.local/state/adr-recorder/codex/capture.log`.
 
 ## Review
 

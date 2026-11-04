@@ -9,6 +9,11 @@
 - `adr-recorder scan --harness claude-code` reads `~/.claude/projects`,
   `--harness codex` reads Codex rollouts, `--harness all` reads every agent.
 - Codex can run the review, interactive or headless (sandboxed to the repo).
+- Codex plugin: live capture through the same hooks as Claude Code, and a
+  `$adr` skill. The hook code is shared (`src/hook-agent/`); an agent is a
+  small profile.
+- The CLI installs its two runtime packages on first run when the agent
+  didn't (Codex plugins).
 - `agent_models` gives an agent its own reviewer model. Claude Code and Codex
   get the model name without the provider part.
 - `agent_commands` (user file only) sets how each agent is started, for
