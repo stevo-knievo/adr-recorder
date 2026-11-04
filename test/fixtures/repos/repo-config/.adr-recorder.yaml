@@ -1,0 +1,8 @@
+adr_dir: doc/architecture/decisions
+backlog_dir: doc/architecture/decisions/inbox
+numbering: date
+template: doc/architecture/decisions/tpl.md
+targets:
+  decision_log: docs/DECISIONS.md
+  glossary: docs/terms.md
+  agents: CLAUDE.md
