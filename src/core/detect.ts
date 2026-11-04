@@ -260,6 +260,7 @@ Targets, pick exactly one per decision:
 Rules:
 - Humans own decisions. If only the agent proposed it and the human did not agree, set decided_by "agent" and confidence "low".
 - A plain "yes"/"ok"/"do 2" that accepts options the agent offered counts as a human decision about that option.
+- A question or proposal in the agent's reply is not a decision yet: the human answers it in a later exchange. Judge only what the human said or confirmed.
 - Routine implementation steps, single names, process chatter (permissions, git workflow for this session) are not decisions. Leave them out.
 - If an existing ADR or backlog note already covers it, set duplicate_of to its id.
 - summary: one or two plain sentences, using the words from the session. No filler.

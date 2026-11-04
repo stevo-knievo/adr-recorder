@@ -41,6 +41,7 @@ export function slugify(text: string, maxWords = 6, maxLen = 50): string {
 		.normalize("NFKD")
 		.replace(/[\u0300-\u036f]/g, "")
 		.toLowerCase()
+		.replace(/['’]/g, "") // don't -> dont
 		.replace(/[^a-z0-9]+/g, " ")
 		.trim()
 		.split(" ")

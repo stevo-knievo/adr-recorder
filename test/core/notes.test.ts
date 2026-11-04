@@ -43,6 +43,7 @@ describe("slugify", () => {
 		);
 		expect(slugify("Ünïcode: déjà vu!")).toBe("unicode-deja-vu");
 		expect(slugify("???")).toBe("decision");
+		expect(slugify("We don't purge rows, it’s soft")).toBe("dont-purge-rows-its-soft");
 		expect(slugify("a".repeat(80)).length).toBeLessThanOrEqual(50);
 	});
 });
