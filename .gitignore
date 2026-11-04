@@ -1,0 +1,6 @@
+node_modules/
+coverage/
+*.log
+
+# Fixture repos model a real node_modules folder.
+!test/fixtures/repos/*/node_modules/

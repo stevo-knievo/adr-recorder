@@ -1,0 +1,59 @@
+{
+	"name": "adr-recorder",
+	"version": "0.0.1",
+	"description": "Captures decisions from agent coding sessions into an ADR backlog.",
+	"type": "module",
+	"private": true,
+	"keywords": [
+		"pi-package",
+		"adr"
+	],
+	"bin": {
+		"adr-recorder": "./bin/adr-recorder.js"
+	},
+	"pi": {
+		"extensions": [
+			"./src/pi/index.ts"
+		]
+	},
+	"engines": {
+		"node": ">=22.18"
+	},
+	"scripts": {
+		"test": "vitest run",
+		"test:unit": "vitest run test/core",
+		"test:smoke": "vitest run test/smoke",
+		"typecheck": "tsc --noEmit",
+		"lint": "biome check .",
+		"lint:fix": "biome check --write .",
+		"check": "npm run typecheck && npm run lint && npm test"
+	},
+	"dependencies": {
+		"jiti": "^2.7.0",
+		"yaml": "^2.9.1"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-ai": "*",
+		"@earendil-works/pi-coding-agent": "*",
+		"@earendil-works/pi-tui": "*",
+		"typebox": "*"
+	},
+	"peerDependenciesMeta": {
+		"@earendil-works/pi-ai": {
+			"optional": true
+		},
+		"@earendil-works/pi-tui": {
+			"optional": true
+		},
+		"typebox": {
+			"optional": true
+		}
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.6.4",
+		"@earendil-works/pi-coding-agent": "^1.5.0",
+		"@types/node": "^24.0.0",
+		"typescript": "^5.9.0",
+		"vitest": "^4.0.0"
+	}
+}
