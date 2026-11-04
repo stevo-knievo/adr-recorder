@@ -48,8 +48,6 @@ export interface StartedReview {
  */
 export async function startReview(input: StartReviewInput): Promise<StartedReview | undefined> {
 	const { layout, config, sys } = input;
-	const model = config.reviewer_model;
-	if (!model) throw new Error("reviewer_model is not set");
 	const launcher: Launcher = pickLauncher(
 		input.launcher ?? config.review_launcher,
 		sys.env,
@@ -66,6 +64,8 @@ export async function startReview(input: StartReviewInput): Promise<StartedRevie
 	const agent = getHarness(agentName)?.reviewer;
 	if (!agent) throw new Error(`No reviewer for harness ${agentName}`);
 	const bin = config.agent_commands?.[agentName];
+	const model = config.agent_models?.[agentName] ?? config.reviewer_model;
+	if (!model) throw new Error("reviewer_model is not set");
 	const headless = prepareReview(layout, { headless: true, now, home: input.home });
 
 	const stamp = now.getTime().toString(36);

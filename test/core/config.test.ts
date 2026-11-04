@@ -87,6 +87,15 @@ describe("loadConfig", () => {
 		expect(stateDir({ home: "/h", env: { XDG_STATE_HOME: "/s" } })).toBe("/s/adr-recorder");
 	});
 
+	it("agent_models: the repo adds to and overrides the user's", () => {
+		const { config } = setup(
+			"agent_models:\n  codex: openai/gpt-5\n  pi: a/b\n",
+			"agent_models: { pi: c/d }\n",
+		);
+		expect(config.agent_models).toEqual({ codex: "openai/gpt-5", pi: "c/d" });
+		expect(setup("").config.agent_models).toBeUndefined();
+	});
+
 	it("reports broken YAML and incomplete endpoints instead of throwing", () => {
 		expect(setup("classifier_model: [unclosed\n").errors[0]).toMatch(/adr-recorder\.yaml/);
 		expect(setup("model_endpoint:\n  base_url: https://x\n").errors[0]).toMatch(/api_key_env/);

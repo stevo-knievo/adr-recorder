@@ -61,7 +61,7 @@ export function buildReviewPrompt(input: ReviewPromptInput): string {
 		? `Template: ${layout.template} (${layout.templateKind ?? "custom"}). Drafts follow it exactly.`
 		: "No template found. Use Nygard sections: Status, Context, Decision, Consequences.";
 	const changes = input.headless
-		? `This is a headless run. Write the report and nothing else. Do not edit any other file, do not change note status, do not commit.`
+		? `This is a headless run and nobody is there to answer questions. Write the report and nothing else. Do not edit any other file, do not change note status, do not commit. Writing this one report into the backlog folder of the current checkout is the whole task: it needs no branch, worktree or commit, so branch and worktree rules for code changes don't apply to it.`
 		: `Write the report first. Then show the human the proposals and ask before changing any file outside the backlog folders. After they agree, apply each accepted proposal and update its note: status (promoted | moved | merged | discarded) and resolved_to (the file it went to). Never edit an accepted ADR; superseding means a new ADR that links the old one. Do not commit.`;
 	return `${REVIEW_MARKER}
 Review the ADR backlog of the repository at ${layout.root}.

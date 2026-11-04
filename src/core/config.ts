@@ -27,6 +27,8 @@ export type AutoReview = "on" | "ask" | "off";
 export interface Config {
 	classifier_model?: string;
 	reviewer_model?: string;
+	/** Reviewer model per agent, e.g. { codex: "openai/gpt-5" }. Falls back to reviewer_model. */
+	agent_models?: Record<string, string>;
 	model_endpoint?: ModelEndpoint;
 	enabled_paths: string[];
 	disabled_paths: string[];
@@ -172,6 +174,7 @@ export function loadConfig(envIn: ConfigEnv, repoRoot?: string): LoadedConfig {
 	const config: Config = {
 		classifier_model: str(r.classifier_model) ?? str(u.classifier_model),
 		reviewer_model: str(r.reviewer_model) ?? str(u.reviewer_model),
+		agent_models: mergeMaps(strMap(u.agent_models), strMap(r.agent_models)),
 		model_endpoint: endpoint,
 		enabled_paths: strList(u.enabled_paths).map((p) => expandHome(p, envIn.home)),
 		disabled_paths: strList(u.disabled_paths).map((p) => expandHome(p, envIn.home)),
@@ -183,6 +186,13 @@ export function loadConfig(envIn: ConfigEnv, repoRoot?: string): LoadedConfig {
 		repo: { ...repoPart(u), ...repoPart(r) },
 	};
 	return { config, sources, errors };
+}
+
+function mergeMaps(
+	a: Record<string, string> | undefined,
+	b: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+	return a || b ? { ...a, ...b } : undefined;
 }
 
 /** Models are required; there are no built-in defaults. */

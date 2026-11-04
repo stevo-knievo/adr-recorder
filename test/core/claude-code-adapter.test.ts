@@ -165,7 +165,7 @@ describe("Claude Code capture", () => {
 		const quit = job(s, { final: true, quit: true });
 		const r = await captureSession(quit, s.d);
 		expect("results" in r && r.review).toMatch(/^review started: 3 note\(s\), rex/);
-		expect(s.runs[0]?.at(-1)).toMatch(/ADR_REVIEW_CHILD=1 claude --model 'p\/strong'/);
+		expect(s.runs[0]?.at(-1)).toMatch(/ADR_REVIEW_CHILD=1 claude --model 'strong'/);
 		const again = await captureSession(quit, s.d);
 		expect("results" in again && again.review).toBe("review skipped: no-new-notes");
 		const clear = await captureSession(job(s, { final: true, quit: false }), s.d);

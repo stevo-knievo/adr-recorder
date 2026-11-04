@@ -1,5 +1,6 @@
 import { closeSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
 import { basename, join, resolve, sep } from "node:path";
+import { endpointModelId } from "../classifier-openai.ts";
 import { REVIEW_CHILD_ENV } from "../review.ts";
 import { shq } from "../shell.ts";
 import type { Session, ToolCall, Turn } from "../types.ts";
@@ -241,6 +242,8 @@ export function findClaudeSessions(
 
 const prompt = (run: ReviewerRun) => `"$(cat ${shq(run.promptFile)})"`;
 const bin = (run: ReviewerRun) => run.bin ?? "claude";
+/** Claude Code takes the model name alone, without pi's provider part. */
+const model = (run: ReviewerRun) => shq(endpointModelId(run.model));
 
 export const claudeSessions: SessionSource = {
 	name: "claude-code",
@@ -252,11 +255,11 @@ export const claudeSessions: SessionSource = {
 export const claudeReviewer: ReviewerAgent = {
 	name: "claude-code",
 	reviewerCommand: (run) =>
-		`cd ${shq(run.cwd)} && ${REVIEW_CHILD_ENV}=1 ${bin(run)} --model ${shq(run.model)} ${prompt(run)}`,
+		`cd ${shq(run.cwd)} && ${REVIEW_CHILD_ENV}=1 ${bin(run)} --model ${model(run)} ${prompt(run)}`,
 	// Headless: may read anything (transcripts live outside the repo) and
 	// write the report in the repo, nothing else runs without a human.
 	headlessReviewerCommand: (run) =>
-		`cd ${shq(run.cwd)} && ${REVIEW_CHILD_ENV}=1 ${bin(run)} -p --model ${shq(run.model)} --permission-mode acceptEdits --allowedTools Read Glob Grep Write -- ${prompt(run)}`,
+		`cd ${shq(run.cwd)} && ${REVIEW_CHILD_ENV}=1 ${bin(run)} -p --model ${model(run)} --permission-mode acceptEdits --allowedTools Read Glob Grep Write -- ${prompt(run)}`,
 };
 
 export const claudeCodeHarness: HarnessAdapter = {

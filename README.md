@@ -6,7 +6,8 @@ backlog. A review step later turns each note into an ADR, a lighter doc (see
 `docs/how-to-document.md`), or nothing.
 
 Status: early. Works in pi and Claude Code (live capture, `/adr` commands,
-review) and as a CLI over their session files. A Codex adapter is next.
+review), and as a CLI over pi, Claude Code and Codex session files. Codex
+can also run the review.
 
 ## Install
 
@@ -212,15 +213,22 @@ review_launcher: command
 review_command: my-mux new-tab --dir {cwd} --name {title} -- sh -ic {command}
 ```
 
-The reviewer is the same agent the session ran in. `review_harness: <name>`
-overrides that. If you start an agent through a wrapper, say so in
-`agent_commands`:
+The reviewer is the same agent the session ran in (pi, Claude Code or
+Codex). `review_harness: <name>` overrides that. If you start an agent
+through a wrapper, say so in `agent_commands` (user file only). If an agent
+runs a different model family, give it its own reviewer model in
+`agent_models`; others use `reviewer_model`:
 
 ```yaml
 agent_commands:
   claude-code: my-wrapper claude # default: claude
-  pi: pi # default
+  codex: my-wrapper codex # default: codex
+agent_models:
+  codex: openai/gpt-5
 ```
+
+Claude Code and Codex get the model name without the provider part
+(`gpt-5`).
 To add a host or an agent, see
 [docs/extending.md](docs/extending.md).
 
@@ -241,9 +249,10 @@ adr-recorder review --dry-run            # which launcher, which command
 adr-recorder launchers                   # hosts this terminal supports
 ```
 
-`scan` finds sessions (pi by default, `--harness claude-code` for
-`~/.claude/projects`) whose working folder is the project or a folder inside
-it. Re-running is safe: exchanges that already have a note are
+`scan` finds sessions whose working folder is the project or a folder inside
+it: pi by default, `--harness claude-code` for `~/.claude/projects`,
+`--harness codex` for `~/.codex/sessions` (or `$CODEX_HOME/sessions`), `all`
+for every agent. Re-running is safe: exchanges that already have a note are
 skipped without a model call.
 
 ### How detection works

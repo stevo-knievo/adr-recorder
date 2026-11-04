@@ -6,7 +6,11 @@
   through `model_endpoint`, `/adr` has the same subcommands as in pi, and the
   review starts on quit. `adr-recorder claude-code statusline --wrap` adds the
   note count to an existing status line.
-- `adr-recorder scan --harness claude-code` reads `~/.claude/projects`.
+- `adr-recorder scan --harness claude-code` reads `~/.claude/projects`,
+  `--harness codex` reads Codex rollouts, `--harness all` reads every agent.
+- Codex can run the review, interactive or headless (sandboxed to the repo).
+- `agent_models` gives an agent its own reviewer model. Claude Code and Codex
+  get the model name without the provider part.
 - `agent_commands` (user file only) sets how each agent is started, for
   wrappers.
 - The classifier no longer records a question the agent asked as a human

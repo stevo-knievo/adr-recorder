@@ -13,12 +13,7 @@ import {
 	userConfigPath,
 } from "./core/config.ts";
 import type { Classifier } from "./core/detect.ts";
-import {
-	getHarness,
-	listHarnesses,
-	PLANNED_HARNESSES,
-	type SessionSource,
-} from "./core/harness/index.ts";
+import { getHarness, listHarnesses, type SessionSource } from "./core/harness/index.ts";
 import { listLaunchers, pickLauncher, type System } from "./core/launch/index.ts";
 import { nodeSystem } from "./core/launch/system.ts";
 import { findGitRoot, hasAdrFolder, resolveLayout } from "./core/layout.ts";
@@ -259,8 +254,7 @@ function pickSources(name: string, io: CliIO): SessionSource[] | undefined {
 	if (name === "all") return listHarnesses().flatMap((h) => (h.sessions ? [h.sessions] : []));
 	const h = getHarness(name);
 	if (h?.sessions) return [h.sessions];
-	if (PLANNED_HARNESSES.includes(name)) io.err(`--harness ${name} is not supported yet.\n`);
-	else io.err(`Unknown harness: ${name}\n`);
+	io.err(`Unknown harness: ${name}\n`);
 	return undefined;
 }
 

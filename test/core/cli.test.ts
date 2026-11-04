@@ -93,10 +93,8 @@ describe("cli", () => {
 		expect(readdirSync(join(root, "docs/adr"))).not.toContain("_backlog");
 	});
 
-	it("scan rejects harnesses that are not built yet and bad dates", async () => {
+	it("scan rejects unknown harnesses and bad dates", async () => {
 		const a = io();
-		expect(await main(["scan", "--harness", "codex"], a.io)).toBe(2);
-		expect(a.err()).toMatch(/--harness codex is not supported yet/);
 		expect(await main(["scan", "--harness", "made-up"], a.io)).toBe(2);
 		expect(a.err()).toMatch(/Unknown harness: made-up/);
 		expect(await main(["scan", "--since", "yesterday-ish"], a.io)).toBe(2);

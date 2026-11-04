@@ -94,8 +94,7 @@ export const myAgentHarness: HarnessAdapter = {
 };
 ```
 
-Then register it in `src/core/harness/index.ts` (and drop it from
-`PLANNED_HARNESSES` if it was there).
+Then register it in `src/core/harness/index.ts`.
 
 - `findSessions` returns sessions whose working folder is the project or a
   folder inside it.
@@ -106,10 +105,10 @@ Then register it in `src/core/harness/index.ts` (and drop it from
   review doesn't record itself, and must read the prompt from `promptFile`
   (it is long). Quote with `shq` from `src/core/shell.ts`. Start the agent
   as `bin` when it is set (the user's `agent_commands`). See `pi.ts`,
-  `claude-code.ts` and the round-trip test in `test/core/harness.test.ts`.
+  `claude-code.ts`, `codex.ts` and the round-trip test in `test/core/harness.test.ts`.
 - Put a real (anonymised) session in `test/fixtures/` and test the parser
   against it. `scripts/make-fixture.ts` (pi) and
-  `scripts/make-claude-fixture.ts` show how to trim and anonymise one.
+  `scripts/make-claude-fixture.ts` and `scripts/make-codex-fixture.ts` show how to trim and anonymise one.
 
 ## Add live capture for an agent
 

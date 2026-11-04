@@ -143,8 +143,22 @@ describe("startReview", () => {
 			stateDir,
 			dryRun: true,
 		});
-		expect(r?.job.command).toContain("ADR_REVIEW_CHILD=1 wrap claude --model 'p/strong'");
+		expect(r?.job.command).toContain("ADR_REVIEW_CHILD=1 wrap claude --model 'strong'");
 		expect(r?.job.headlessCommand).toContain("wrap claude -p --model");
+	});
+
+	it("uses the agent's own model from agent_models", async () => {
+		const { layout, stateDir } = await setup();
+		const { sys } = fakeSystem();
+		const r = await startReview({
+			layout,
+			config: config({ review_harness: "codex", agent_models: { codex: "openai/gpt-5" } }),
+			sys,
+			home: "/h",
+			stateDir,
+			dryRun: true,
+		});
+		expect(r?.job.command).toContain("ADR_REVIEW_CHILD=1 codex --model 'gpt-5' -- ");
 	});
 
 	it("needs reviewer_model", async () => {
