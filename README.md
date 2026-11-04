@@ -52,9 +52,7 @@ model_endpoint:
   api_key_env: OPENAI_API_KEY # name of the env var, never the key
 
 auto_review: on # on | ask | off
-# How to start the review agent when a session quits. Optional; without it
-# the review runs headless in the background. See "Review" below.
-review_command: 'if [ -n "$REX_SESSION" ]; then rex run --cwd {cwd} -- "$SHELL" -ic {command}; else {headless}; fi'
+review_launcher: auto # where the review opens on quit; see "Review" below
 enabled_paths: [] # e.g. ["~/code/work/**"], on even without an ADR folder
 disabled_paths: [] # always off here, wins over everything but /adr on
 ```
@@ -78,9 +76,9 @@ targets:
 ignore: [examples/**] # skipped when looking for package ADR folders
 ```
 
-`model_endpoint`, `review_command`, and the path lists are only read from your
-user file, so a cloned repo can't send transcripts somewhere else or run
-commands.
+`model_endpoint`, `review_launcher`, `review_command`, `review_harness` and
+the path lists are only read from your user file, so a cloned repo can't send
+transcripts somewhere else or run commands.
 
 ### Where notes go
 
@@ -126,14 +124,39 @@ outside the backlog.
 installed. Without one, the agent does the review itself.
 
 When a session that recorded notes quits, `auto_review` starts a review on
-its own. A quitting pi can't host it, so it hands off:
+its own. A quitting pi can't host it, so a launcher opens it somewhere else.
+`review_launcher` picks one:
 
-- With `review_command` set, that shell command runs. Placeholders: `{cwd}`,
-  `{model}`, `{prompt_file}`, `{command}` (an interactive `pi` with the review
-  prompt) and `{headless}` (the background run below). The example above opens
-  a new Rex block inside Rex and falls back to the background run elsewhere.
-- Without it, `pi -p` runs in the background and writes only the report. The
-  next pi session in that repo says "ADR review ready: N proposals".
+| `review_launcher` | Opens the reviewer in                                          |
+| ----------------- | -------------------------------------------------------------- |
+| `auto` (default)  | the first host below that this terminal runs in, else headless |
+| `tmux`            | a new tmux window                                              |
+| `zellij`          | a new zellij pane                                              |
+| `herdr`           | a new herdr tab                                                |
+| `rex`             | a new Rex block                                                |
+| `wezterm`         | a new WezTerm tab                                              |
+| `kitty`           | a new kitty tab (needs remote control)                         |
+| `headless`        | a background `pi -p` that writes only the report               |
+| `command`         | your own `review_command`, for any other host                  |
+
+`adr-recorder launchers` shows which one `auto` picks in the current
+terminal. If the host refuses (say the tmux server is gone), the review runs
+headless instead. After a headless run the next pi session in that repo says
+"ADR review ready: N proposals". `adr-recorder review` starts the same
+hand-off by hand.
+
+`review_command` is a shell template. `{cwd}`, `{title}`, `{command}` (the
+interactive reviewer) and `{headless}` (the background run) are replaced with
+shell-quoted values, so pass them as arguments:
+
+```yaml
+review_launcher: command
+review_command: my-mux new-tab --dir {cwd} --name {title} -- sh -ic {command}
+```
+
+The reviewer is the same agent the session ran in. `review_harness: <name>`
+overrides that. To add a host or an agent, see
+[docs/extending.md](docs/extending.md).
 
 Review agents get `ADR_REVIEW_CHILD=1` and don't record or start reviews of
 their own. Each note is auto-reviewed once, even across resumes. Logs and
@@ -148,6 +171,8 @@ npm install
 ./bin/adr-recorder.js scan                   # write backlog notes
 ./bin/adr-recorder.js scan --since 2026-11-01 --path ~/code/some/repo
 ./bin/adr-recorder.js scan --session ~/.pi/agent/sessions/<dir>/<file>.jsonl
+./bin/adr-recorder.js review --dry-run       # which launcher, which command
+./bin/adr-recorder.js launchers              # hosts this terminal supports
 ```
 
 `scan` finds pi sessions whose working folder is the project or a folder

@@ -7,8 +7,15 @@
   `off`, `status`, `note`, `scan` and `review`.
 - `/adr review` starts a reviewer sub-agent that proposes where each note
   belongs and writes a review report.
-- Auto review on quit, through `review_command` or a background `pi -p` run,
-  with a notice in the next session. Review agents never record.
+- Auto review on quit, with a notice in the next session after a background
+  run. Review agents never record.
+- `review_launcher` picks where the review opens: `auto` detects tmux,
+  zellij, herdr, Rex, WezTerm or kitty, falling back to a background run.
+  `command` runs your own `review_command` template, whose placeholders are
+  now shell-quoted (`{model}` and `{prompt_file}` are gone).
+- `adr-recorder review` and `adr-recorder launchers`.
+- Agents and hosts are plugins behind `HarnessAdapter` and `Launcher`
+  (docs/extending.md). `review_harness` picks the reviewing agent.
 
 - `adr-recorder scan` for pi sessions: finds sessions for a project, scores
   each exchange locally, classifies hits with the configured model, and

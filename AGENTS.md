@@ -16,6 +16,19 @@ Node CLI, TypeScript only, no build step.
 - Only `src/pi/` imports pi. `src/claude-code/` and the CLI build on core.
 - pi packages are `peerDependencies: "*"`, never `dependencies`.
 
+## Extension points
+
+Open source, so other people add hosts and agents. Keep these small and stable:
+
+- `src/core/harness/`: one file per agent (`HarnessAdapter` = optional
+  `SessionSource` + optional `ReviewerAgent`), registered in `index.ts`.
+- `src/core/launch/`: one file per terminal host (`Launcher`), registered in
+  `index.ts`. Launchers get a `System` for all side effects; tests pass a fake.
+- Callers depend on the interfaces and registries, never on a concrete
+  harness or launcher. No `if (name === "rex")` outside its own file.
+- A new harness or launcher must not need edits to existing ones. See
+  `docs/extending.md`; keep it in sync with the interfaces.
+
 ## Code rules
 
 - Erasable TypeScript only (no enums, namespaces, parameter properties). Node,
