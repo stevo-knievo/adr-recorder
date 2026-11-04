@@ -1,0 +1,10 @@
+{
+	"name": "adr-recorder",
+	"description": "Notices decisions in your sessions and writes short notes to the ADR backlog, for a reviewer to turn into ADRs or lighter docs.",
+	"version": "0.0.1",
+	"author": {
+		"name": "Stefan Koch"
+	},
+	"repository": "https://github.com/stevo-knievo/adr-recorder",
+	"keywords": ["adr", "architecture-decision-records", "documentation"]
+}

@@ -5,10 +5,12 @@ spots when a decision is made, and writes a short note to the project's ADR
 backlog. A review step later turns each note into an ADR, a lighter doc (see
 `docs/how-to-document.md`), or nothing.
 
-Status: early. Works in pi (live capture, `/adr` commands, review) and as a
-CLI over pi session files. Claude Code and Codex adapters are next.
+Status: early. Works in pi and Claude Code (live capture, `/adr` commands,
+review) and as a CLI over their session files. A Codex adapter is next.
 
-## Install (pi)
+## Install
+
+### pi
 
 Try it once, for one run only:
 
@@ -32,6 +34,27 @@ pi install git:github.com/stevo-knievo/adr-recorder
 When active, the status line shows `ADR rec ●`, or `ADR rec ● 3` once this
 session has three notes.
 
+### Claude Code
+
+This repo is also a Claude Code plugin. From a local checkout, for one run:
+
+```bash
+claude --plugin-dir /path/to/adr-recorder
+```
+
+To install it for good, add the repo as a marketplace and install from it
+(inside Claude Code):
+
+```
+/plugin marketplace add stevo-knievo/adr-recorder
+/plugin install adr-recorder@adr-recorder
+```
+
+Claude Code installs the two runtime packages (`jiti`, `yaml`) itself. With
+`--plugin-dir`, run `npm install` in the checkout first. Node 22.18 or later
+must be on PATH. See "In Claude Code" for the model endpoint and the status
+line.
+
 ## Configuration
 
 Models are required. There are no built-in defaults, so nothing runs against a
@@ -45,8 +68,8 @@ classifier_model: openai/gpt-5-mini
 # Strong: reads the backlog and drafts ADRs and doc changes.
 reviewer_model: anthropic/claude-opus-4-1
 
-# The CLI talks to an OpenAI-compatible endpoint. Inside pi the recorder uses
-# pi's own providers and ignores this block.
+# The CLI and Claude Code talk to an OpenAI-compatible endpoint. Inside pi the
+# recorder uses pi's own providers and ignores this block.
 model_endpoint:
   base_url: https://api.openai.com/v1
   api_key_env: OPENAI_API_KEY # name of the env var, never the key
@@ -76,8 +99,8 @@ targets:
 ignore: [examples/**] # skipped when looking for package ADR folders
 ```
 
-`model_endpoint`, `review_launcher`, `review_command`, `review_harness` and
-the path lists are only read from your user file, so a cloned repo can't send
+`model_endpoint`, `review_launcher`, `review_command`, `review_harness`,
+`agent_commands` and the path lists are only read from your user file, so a cloned repo can't send
 transcripts somewhere else or run commands.
 
 ### Where notes go
@@ -110,7 +133,39 @@ through pi's own providers, using `classifier_model`.
 | `/adr scan`           | look at the whole session, for sessions where it was off                                                                                                 |
 | `/adr review`         | ask the agent to start a reviewer sub-agent on the backlog                                                                                               |
 
-### Review
+## In Claude Code
+
+The same rules decide when it is on. Hooks do the work:
+
+- `Stop` (after each reply) and `PreCompact` start a background worker that
+  classifies the new exchanges. Claude Code doesn't wait for it.
+- `SessionEnd` runs a last pass, then the auto review when you quit (not on
+  `/clear`).
+- `SessionStart` says "ADR review ready" after a headless review.
+
+Claude Code has no model access for plugins, so the classifier goes through
+`model_endpoint` like the CLI does. The `api_key_env` variable must be set in
+the shell you start `claude` from.
+
+`/adr` takes the same subcommands as in pi. `/adr on <dir>` sets the ADR
+folder in a repo that has none (default `docs/adr`). `/adr review` opens the
+reviewer through `review_launcher`, the same way the auto review does.
+
+A plugin can't set the status line, so add it to `~/.claude/settings.json`
+yourself. `--wrap` keeps the status line you have and appends to it:
+
+```json
+"statusLine": {
+  "type": "command",
+  "command": "adr-recorder claude-code statusline --wrap 'your-current-statusline-command'"
+}
+```
+
+Use the full path to `bin/adr-recorder.js` if `adr-recorder` isn't on your
+PATH. Worker output goes to
+`~/.local/state/adr-recorder/claude-code/capture.log`.
+
+## Review
 
 The reviewer reads the open notes, the existing ADRs and the session
 transcripts, and proposes for each note: promote to an ADR (drafted from the
@@ -136,12 +191,12 @@ its own. A quitting pi can't host it, so a launcher opens it somewhere else.
 | `rex`             | a new Rex block                                                |
 | `wezterm`         | a new WezTerm tab                                              |
 | `kitty`           | a new kitty tab (needs remote control)                         |
-| `headless`        | a background `pi -p` that writes only the report               |
+| `headless`        | a background run (`pi -p`, `claude -p`), report only           |
 | `command`         | your own `review_command`, for any other host                  |
 
 `adr-recorder launchers` shows which one `auto` picks in the current
 terminal. If the host refuses (say the tmux server is gone), the review runs
-headless instead. After a headless run the next pi session in that repo says
+headless instead. After a headless run the next session in that repo says
 "ADR review ready: N proposals". `adr-recorder review` starts the same
 hand-off by hand.
 
@@ -155,7 +210,15 @@ review_command: my-mux new-tab --dir {cwd} --name {title} -- sh -ic {command}
 ```
 
 The reviewer is the same agent the session ran in. `review_harness: <name>`
-overrides that. To add a host or an agent, see
+overrides that. If you start an agent through a wrapper, say so in
+`agent_commands`:
+
+```yaml
+agent_commands:
+  claude-code: my-wrapper claude # default: claude
+  pi: pi # default
+```
+To add a host or an agent, see
 [docs/extending.md](docs/extending.md).
 
 Review agents get `ADR_REVIEW_CHILD=1` and don't record or start reviews of
@@ -171,12 +234,14 @@ npm install
 ./bin/adr-recorder.js scan                   # write backlog notes
 ./bin/adr-recorder.js scan --since 2026-11-01 --path ~/code/some/repo
 ./bin/adr-recorder.js scan --session ~/.pi/agent/sessions/<dir>/<file>.jsonl
+./bin/adr-recorder.js scan --harness claude-code   # or all
 ./bin/adr-recorder.js review --dry-run       # which launcher, which command
 ./bin/adr-recorder.js launchers              # hosts this terminal supports
 ```
 
-`scan` finds pi sessions whose working folder is the project or a folder
-inside it. Re-running is safe: exchanges that already have a note are
+`scan` finds sessions (pi by default, `--harness claude-code` for
+`~/.claude/projects`) whose working folder is the project or a folder inside
+it. Re-running is safe: exchanges that already have a note are
 skipped without a model call.
 
 ### How detection works

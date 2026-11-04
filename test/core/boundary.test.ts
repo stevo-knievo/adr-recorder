@@ -25,4 +25,18 @@ describe("core boundary", () => {
 		});
 		expect(offenders).toEqual([]);
 	});
+
+	it("adapters only reach each other through core", () => {
+		const SRC = new URL("../../src/", import.meta.url).pathname;
+		const adapters = ["pi", "claude-code"];
+		const offenders = adapters.flatMap((a) =>
+			tsFiles(join(SRC, a)).filter((f) => {
+				const src = readFileSync(f, "utf8");
+				const others = adapters.filter((o) => o !== a).join("|");
+				const piSdk = a !== "pi" && /from\s+["'](@earendil-works\/|typebox)/.test(src);
+				return piSdk || new RegExp(`from\\s+["']\\.\\./(${others})/`).test(src);
+			}),
+		);
+		expect(offenders).toEqual([]);
+	});
 });

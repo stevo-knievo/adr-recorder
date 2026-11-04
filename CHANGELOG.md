@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+- Claude Code plugin (this repo): hooks record decisions after each reply
+  through `model_endpoint`, `/adr` has the same subcommands as in pi, and the
+  review starts on quit. `adr-recorder claude-code statusline --wrap` adds the
+  note count to an existing status line.
+- `adr-recorder scan --harness claude-code` reads `~/.claude/projects`.
+- `agent_commands` (user file only) sets how each agent is started, for
+  wrappers.
+- The classifier no longer records a question the agent asked as a human
+  decision, and skips the `/adr` command turns.
+- Only the pi SDK is a peer dependency, and it is optional, so the plugin
+  install pulls just `jiti` and `yaml`.
+
 - pi extension: records decisions after each agent run through pi's own
   providers, shows the note count in the status line, and adds `/adr on`,
   `off`, `status`, `note`, `scan` and `review`.

@@ -2,7 +2,9 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { createOpenAIClassifier, endpointModelId } from "./core/classifier-openai.ts";
+import { claudeCodeMain } from "./claude-code/cli.ts";
+import type { Deps } from "./claude-code/context.ts";
+import { classifierFromConfig } from "./core/classifier-openai.ts";
 import {
 	decideEnablement,
 	loadConfig,
@@ -30,6 +32,7 @@ Commands:
   review     Open a reviewer for the open backlog notes
   status     Show the resolved layout, config and enablement for a project
   launchers  List review launchers and which one this terminal would use
+  claude-code  Hooks, /adr and status line for the Claude Code plugin
   version    Print the version
 
 scan options:
@@ -58,6 +61,17 @@ export interface CliIO {
 	classifier?: Classifier;
 	/** Tests inject a fake system for launchers. */
 	sys?: System;
+	/** All of stdin (hook and status line input). */
+	stdin?: () => Promise<string>;
+	/** argv that starts this CLI again, for detached workers. */
+	self?: string[];
+}
+
+async function readAll(stream: NodeJS.ReadStream): Promise<string> {
+	if (stream.isTTY) return "";
+	let s = "";
+	for await (const chunk of stream) s += chunk;
+	return s;
 }
 
 const defaultIO = (): CliIO => ({
@@ -66,6 +80,8 @@ const defaultIO = (): CliIO => ({
 	env: process.env,
 	home: homedir(),
 	cwd: process.cwd(),
+	stdin: () => readAll(process.stdin),
+	self: [process.execPath, ...(process.argv[1] ? [process.argv[1]] : [])],
 });
 
 export async function main(argv: string[], io: CliIO = defaultIO()): Promise<number> {
@@ -86,6 +102,8 @@ export async function main(argv: string[], io: CliIO = defaultIO()): Promise<num
 				return await review(rest, io);
 			case "launchers":
 				return launchers(io);
+			case "claude-code":
+				return await claudeCodeMain(rest, claudeDeps(io), io.stdin ?? (async () => ""));
 			case undefined:
 			case "help":
 			case "--help":
@@ -100,6 +118,19 @@ export async function main(argv: string[], io: CliIO = defaultIO()): Promise<num
 		io.err(`${(e as Error).message}\n`);
 		return 1;
 	}
+}
+
+function claudeDeps(io: CliIO): Deps {
+	return {
+		env: io.env,
+		home: io.home,
+		stateDir: stateDir({ home: io.home, env: io.env }),
+		sys: io.sys ?? nodeSystem(io.env),
+		self: io.self ?? ["adr-recorder"],
+		out: io.out,
+		err: io.err,
+		classifier: io.classifier,
+	};
 }
 
 function projectRoot(path: string | undefined, io: CliIO): string {
@@ -139,23 +170,10 @@ function status(argv: string[], io: CliIO): number {
 
 function buildClassifier(io: CliIO, root: string): Classifier {
 	if (io.classifier) return io.classifier;
-	const loaded = loadConfig({ home: io.home, env: io.env }, root);
+	const cenv = { home: io.home, env: io.env };
+	const loaded = loadConfig(cenv, root);
 	for (const e of loaded.errors) io.err(`config: ${e}\n`);
-	const missing = missingSettings(loaded.config, { needEndpoint: true });
-	if (missing.length) {
-		throw new Error(
-			`Missing required config: ${missing.join(", ")}. Add them to ${userConfigPath({ home: io.home, env: io.env })} (see README, "Configuration").`,
-		);
-	}
-	const ep = loaded.config.model_endpoint;
-	const model = loaded.config.classifier_model;
-	if (!ep || !model) throw new Error("unreachable: config checked above");
-	const apiKey = io.env[ep.api_key_env];
-	if (!apiKey)
-		throw new Error(
-			`Environment variable ${ep.api_key_env} is not set (model_endpoint.api_key_env).`,
-		);
-	return createOpenAIClassifier({ baseUrl: ep.base_url, apiKey, model: endpointModelId(model) });
+	return classifierFromConfig(loaded.config, io.env, userConfigPath(cenv));
 }
 
 function short(s: string, n = 70): string {

@@ -1,7 +1,7 @@
 # adr-recorder
 
-Captures decisions from agent sessions into an ADR backlog. A pi package plus a
-Node CLI, TypeScript only, no build step.
+Captures decisions from agent sessions into an ADR backlog. A pi package, a Claude
+Code plugin (this repo is both) and a Node CLI. TypeScript only, no build step.
 
 ## Commands
 
@@ -14,7 +14,11 @@ Node CLI, TypeScript only, no build step.
 - `src/core/` must not import `@earendil-works/*`, `typebox`, or any adapter folder.
   `test/core/boundary.test.ts` enforces this.
 - Only `src/pi/` imports pi. `src/claude-code/` and the CLI build on core.
-- pi packages are `peerDependencies: "*"`, never `dependencies`.
+  Adapters never import each other (same test).
+- pi packages we import are optional `peerDependencies: "*"`, never
+  `dependencies`. Optional, because the Claude Code plugin installs
+  production deps from the lockfile and must not pull pi in. Runtime deps stay
+  `jiti` and `yaml`.
 
 ## Extension points
 

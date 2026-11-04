@@ -88,8 +88,8 @@ export const myAgentHarness: HarnessAdapter = {
 	},
 	reviewer: {
 		name: "myagent",
-		reviewerCommand: ({ cwd, model, promptFile }) => "...",
-		headlessReviewerCommand: ({ cwd, model, promptFile }) => "...",
+		reviewerCommand: ({ cwd, model, promptFile, bin }) => "...",
+		headlessReviewerCommand: ({ cwd, model, promptFile, bin }) => "...",
 	},
 };
 ```
@@ -104,13 +104,45 @@ Then register it in `src/core/harness/index.ts` (and drop it from
   never look at the raw format.
 - Reviewer commands must set `ADR_REVIEW_CHILD=1` for the agent, so the
   review doesn't record itself, and must read the prompt from `promptFile`
-  (it is long). Quote with `shq` from `src/core/shell.ts`. See `pi.ts` and
-  the round-trip test in `test/core/harness.test.ts`.
+  (it is long). Quote with `shq` from `src/core/shell.ts`. Start the agent
+  as `bin` when it is set (the user's `agent_commands`). See `pi.ts`,
+  `claude-code.ts` and the round-trip test in `test/core/harness.test.ts`.
 - Put a real (anonymised) session in `test/fixtures/` and test the parser
-  against it.
+  against it. `scripts/make-fixture.ts` (pi) and
+  `scripts/make-claude-fixture.ts` show how to trim and anonymise one.
 
-Live capture inside the agent (hooks, extensions) lives outside core, in a
-folder like `src/pi/`. Only that folder may import the agent's SDK.
+## Add live capture for an agent
+
+Live capture lives outside core, in a folder named after the agent
+(`src/pi/`, `src/claude-code/`). Only that folder may import the agent's SDK,
+and adapters never import each other; `test/core/boundary.test.ts` checks
+both. What an adapter needs is already in core:
+
+| Need                                  | Core function                                      |
+| ------------------------------------- | -------------------------------------------------- |
+| config, layout, on or off             | `loadProject`, `projectEnablement`                 |
+| `/adr status`, `/adr note`, `/adr on` | `statusReport`, `writeManualNote`, `setRepoAdrDir` |
+| review on quit, once per note         | `reviewOnExit`                                     |
+| "ADR review ready" once per report    | `takeNewReviewReport`                              |
+| `/adr review` in a new pane           | `startReview`                                      |
+| the status line text                  | `statusText`, `sessionNotes`                       |
+
+How the adapter gets new exchanges depends on the agent:
+
+- **In-process** (pi): the extension lives as long as the session, keeps the
+  set of seen exchanges in memory and calls `scanSession` after each run.
+- **Hooks** (Claude Code): each hook is a new, short-lived process. Return at
+  once and start a detached worker that calls `captureSession` from
+  `src/core/capture.ts`. It reads the transcript through the harness's
+  `SessionSource`, keeps one worker per session (later jobs queue behind it),
+  waits briefly for a reply that hasn't reached the transcript yet,
+  remembers what it classified in the state dir, and runs `reviewOnExit` when
+  the job says the human quit. `/adr on` and `/adr off` go to
+  `writeOverride` in `src/core/state.ts`. See `src/claude-code/hook.ts` for
+  the whole pattern in about fifty lines.
+
+Hook-based agents have no model access for plugins, so the classifier comes
+from `model_endpoint` (`classifierFromConfig`).
 
 ## Without forking
 

@@ -1,0 +1,48 @@
+{
+	"description": "Each hook returns at once; classification runs in a detached worker.",
+	"hooks": {
+		"SessionStart": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/adr-recorder.js\" claude-code hook",
+						"timeout": 10
+					}
+				]
+			}
+		],
+		"Stop": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/adr-recorder.js\" claude-code hook",
+						"timeout": 10
+					}
+				]
+			}
+		],
+		"PreCompact": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/adr-recorder.js\" claude-code hook",
+						"timeout": 10
+					}
+				]
+			}
+		],
+		"SessionEnd": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/adr-recorder.js\" claude-code hook"
+					}
+				]
+			}
+		]
+	}
+}

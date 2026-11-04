@@ -24,7 +24,10 @@ export interface RunResult {
 export interface System {
 	env: Env;
 	/** Run a short command and wait for it. */
-	run(argv: string[], opts?: { cwd?: string; timeoutMs?: number }): Promise<RunResult>;
+	run(
+		argv: string[],
+		opts?: { cwd?: string; timeoutMs?: number; stdin?: string },
+	): Promise<RunResult>;
 	/** Start a long command and don't wait. Output goes to logFile, or nowhere. */
 	spawnDetached(argv: string[], opts?: { cwd?: string; logFile?: string }): void;
 }

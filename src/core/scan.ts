@@ -96,6 +96,7 @@ export async function scanSession(session: Session, ctx: ScanContext): Promise<E
 	for (const ex of toExchanges(session.turns)) {
 		if (ctx.filter && !ctx.filter(ex)) continue;
 		if (ex.user.includes(REVIEW_MARKER)) continue; // our own review request
+		if (/^\/adr(\s|$)/.test(ex.user.trim())) continue; // our own command; /adr note writes its note
 		const trigger = scoreExchange(ex);
 		const base: ExchangeResult = {
 			anchor: ex.anchor,

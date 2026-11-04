@@ -1,3 +1,4 @@
+import { type Config, missingSettings } from "./config.ts";
 import {
 	buildClassifierPrompt,
 	type Classification,
@@ -55,4 +56,31 @@ export function createOpenAIClassifier(opts: OpenAIClassifierOptions): Classifie
 			return parseClassifications(text, input.exchange.user);
 		},
 	};
+}
+
+/**
+ * The classifier for adapters that can't use their host's model access (the
+ * CLI, Claude Code hooks): `model_endpoint` plus `classifier_model`. Throws a
+ * message meant for the human when something is missing.
+ */
+export function classifierFromConfig(
+	config: Config,
+	env: Record<string, string | undefined>,
+	configPath: string,
+): Classifier {
+	const missing = missingSettings(config, { needEndpoint: true });
+	if (missing.length) {
+		throw new Error(
+			`Missing required config: ${missing.join(", ")}. Add them to ${configPath} (see README, "Configuration").`,
+		);
+	}
+	const ep = config.model_endpoint;
+	const model = config.classifier_model;
+	if (!ep || !model) throw new Error("unreachable: config checked above");
+	const apiKey = env[ep.api_key_env];
+	if (!apiKey)
+		throw new Error(
+			`Environment variable ${ep.api_key_env} is not set (model_endpoint.api_key_env).`,
+		);
+	return createOpenAIClassifier({ baseUrl: ep.base_url, apiKey, model: endpointModelId(model) });
 }

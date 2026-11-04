@@ -1,0 +1,14 @@
+{
+	"name": "adr-recorder",
+	"description": "Claude Code plugin that records decisions from coding sessions into an ADR backlog.",
+	"owner": {
+		"name": "Stefan Koch"
+	},
+	"plugins": [
+		{
+			"name": "adr-recorder",
+			"source": "./",
+			"description": "Captures decisions from Claude Code sessions into an ADR backlog."
+		}
+	]
+}

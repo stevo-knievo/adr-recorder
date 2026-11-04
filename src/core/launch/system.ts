@@ -15,15 +15,16 @@ export function nodeSystem(env: Env = process.env): System {
 				const child = spawn(cmd, args, {
 					cwd: opts.cwd,
 					env: env as NodeJS.ProcessEnv,
-					stdio: ["ignore", "pipe", "pipe"],
+					stdio: [opts.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
 					timeout: opts.timeoutMs,
 				});
+				if (opts.stdin !== undefined) child.stdin?.end(opts.stdin);
 				let stdout = "";
 				let stderr = "";
-				child.stdout.on("data", (d) => {
+				child.stdout?.on("data", (d) => {
 					stdout += d;
 				});
-				child.stderr.on("data", (d) => {
+				child.stderr?.on("data", (d) => {
 					stderr += d;
 				});
 				child.on("error", (e) => resolve({ code: 127, stdout, stderr: e.message }));
