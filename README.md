@@ -10,50 +10,52 @@ review) and as a CLI over their session files. A Codex adapter is next.
 
 ## Install
 
+Needs Node 22.18 or later. The package is plain TypeScript, there is no build
+step.
+
 ### pi
 
-Try it once, for one run only:
-
-```bash
-pi -e /path/to/adr-recorder/src/pi/index.ts
-```
-
-Daily use while developing. It's a local path, so edits apply directly; type
-`/reload` in a running session to pick them up:
-
-```bash
-pi install /path/to/adr-recorder
-```
-
-Shared install from git:
+From git:
 
 ```bash
 pi install git:github.com/stevo-knievo/adr-recorder
 ```
+
+From a local clone, for working on it. Edits apply directly; type `/reload`
+in a running session to pick them up:
+
+```bash
+git clone https://github.com/stevo-knievo/adr-recorder.git
+cd adr-recorder && npm install
+pi install .
+```
+
+To try a clone for one run only: `pi -e ./src/pi/index.ts`.
 
 When active, the status line shows `ADR rec ●`, or `ADR rec ● 3` once this
 session has three notes.
 
 ### Claude Code
 
-This repo is also a Claude Code plugin. From a local checkout, for one run:
-
-```bash
-claude --plugin-dir /path/to/adr-recorder
-```
-
-To install it for good, add the repo as a marketplace and install from it
-(inside Claude Code):
+The repo is also a Claude Code plugin and its own marketplace. Inside Claude
+Code:
 
 ```
 /plugin marketplace add stevo-knievo/adr-recorder
 /plugin install adr-recorder@adr-recorder
 ```
 
-Claude Code installs the two runtime packages (`jiti`, `yaml`) itself. With
-`--plugin-dir`, run `npm install` in the checkout first. Node 22.18 or later
-must be on PATH. See "In Claude Code" for the model endpoint and the status
-line.
+Claude Code installs the two runtime packages (`jiti`, `yaml`) itself. To load
+a local clone instead, run `npm install` in it and start
+`claude --plugin-dir <clone>`. See "In Claude Code" for the model endpoint
+and the status line.
+
+### CLI
+
+```bash
+npm install -g github:stevo-knievo/adr-recorder
+adr-recorder status
+```
 
 ## Configuration
 
@@ -76,14 +78,15 @@ model_endpoint:
 
 auto_review: on # on | ask | off
 review_launcher: auto # where the review opens on quit; see "Review" below
-enabled_paths: [] # e.g. ["~/code/work/**"], on even without an ADR folder
+enabled_paths: [] # e.g. ["~/work/**"], on even without an ADR folder
 disabled_paths: [] # always off here, wins over everything but /adr on
 ```
 
-Recommended models: a flash or mini class model for `classifier_model`
-(gpt-5-mini works well and answers in a second or two), and the
-strongest model you have for `reviewer_model`. Model ids are `provider/model`
-as pi knows them; the CLI drops the provider part when calling the endpoint.
+Pick a small, fast model for `classifier_model` (it answers once per
+candidate exchange and should take a second or two) and the strongest model
+you have for `reviewer_model`. Model ids are `provider/model` as pi knows
+them. Outside pi, the provider part is dropped when calling the endpoint, so
+`openai/gpt-5-mini` is sent as `gpt-5-mini`.
 
 A repo can add `.adr-recorder.yaml` next to its `.git`. It may set the models,
 `auto_review`, and the layout:
@@ -100,8 +103,8 @@ ignore: [examples/**] # skipped when looking for package ADR folders
 ```
 
 `model_endpoint`, `review_launcher`, `review_command`, `review_harness`,
-`agent_commands` and the path lists are only read from your user file, so a cloned repo can't send
-transcripts somewhere else or run commands.
+`agent_commands` and the path lists are only read from your user file, so a
+cloned repo can't send transcripts somewhere else or run commands.
 
 ### Where notes go
 
@@ -228,15 +231,14 @@ bookkeeping live in `~/.local/state/adr-recorder/`.
 ## CLI
 
 ```bash
-npm install
-./bin/adr-recorder.js status                 # layout, config, enablement
-./bin/adr-recorder.js scan --dry-run         # what would be recorded
-./bin/adr-recorder.js scan                   # write backlog notes
-./bin/adr-recorder.js scan --since 2026-11-01 --path ~/code/some/repo
-./bin/adr-recorder.js scan --session ~/.pi/agent/sessions/<dir>/<file>.jsonl
-./bin/adr-recorder.js scan --harness claude-code   # or all
-./bin/adr-recorder.js review --dry-run       # which launcher, which command
-./bin/adr-recorder.js launchers              # hosts this terminal supports
+adr-recorder status                      # layout, config, enablement
+adr-recorder scan --dry-run              # what would be recorded
+adr-recorder scan                        # write backlog notes
+adr-recorder scan --since 2026-11-01 --path ~/work/some-repo
+adr-recorder scan --session ~/.pi/agent/sessions/<dir>/<file>.jsonl
+adr-recorder scan --harness claude-code  # or all
+adr-recorder review --dry-run            # which launcher, which command
+adr-recorder launchers                   # hosts this terminal supports
 ```
 
 `scan` finds sessions (pi by default, `--harness claude-code` for
@@ -258,6 +260,12 @@ checks existing ADRs and backlog notes for duplicates.
 ## Development
 
 ```bash
+git clone https://github.com/stevo-knievo/adr-recorder.git
+cd adr-recorder
 npm install
-npm run check
+npm run check              # typecheck, lint, tests
+./bin/adr-recorder.js help # the CLI from the clone
 ```
+
+See `AGENTS.md` for the code rules and `docs/extending.md` to add an agent or
+a terminal host.
