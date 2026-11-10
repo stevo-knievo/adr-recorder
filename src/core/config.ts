@@ -15,12 +15,10 @@ export interface RepoConfig {
 	ignore?: string[];
 }
 
-export interface ModelEndpoint {
-	/** OpenAI-compatible base URL; the CLI posts to <base_url>/chat/completions. */
-	base_url: string;
+export type ModelEndpoint = {
 	/** Name of the env var holding the API key. The key itself never goes in a file. */
 	api_key_env: string;
-}
+} & ({ base_url: string; base_url_env?: never } | { base_url?: never; base_url_env: string });
 
 export type AutoReview = "on" | "ask" | "off";
 
@@ -159,9 +157,17 @@ export function loadConfig(envIn: ConfigEnv, repoRoot?: string): LoadedConfig {
 	const ep = u.model_endpoint as Record<string, unknown> | undefined;
 	if (ep && typeof ep === "object") {
 		const base = str(ep.base_url);
+		const baseEnv = str(ep.base_url_env);
 		const key = str(ep.api_key_env);
-		if (base && key) endpoint = { base_url: base.replace(/\/+$/, ""), api_key_env: key };
-		else errors.push(`${userFile}: model_endpoint needs base_url and api_key_env`);
+		if (base && baseEnv) {
+			errors.push(`${userFile}: model_endpoint accepts either base_url or base_url_env, not both`);
+		} else if (base && key) {
+			endpoint = { base_url: base.replace(/\/+$/, ""), api_key_env: key };
+		} else if (baseEnv && key) {
+			endpoint = { base_url_env: baseEnv, api_key_env: key };
+		} else {
+			errors.push(`${userFile}: model_endpoint needs base_url or base_url_env, and api_key_env`);
+		}
 	}
 	const userOnly = USER_ONLY_KEYS.filter((k) => repo?.[k] !== undefined);
 	if (userOnly.length) {

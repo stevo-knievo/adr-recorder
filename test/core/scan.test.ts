@@ -1,7 +1,12 @@
 import { copyFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
-import { createOpenAIClassifier, endpointModelId } from "../../src/core/classifier-openai.ts";
+import { describe, expect, it, vi } from "vitest";
+import {
+	classifierFromConfig,
+	createOpenAIClassifier,
+	endpointModelId,
+} from "../../src/core/classifier-openai.ts";
+import type { Config } from "../../src/core/config.ts";
 import { findPiSessions } from "../../src/core/harness/pi.ts";
 import { resolveLayout } from "../../src/core/layout.ts";
 import { parseNote } from "../../src/core/notes.ts";
@@ -244,6 +249,55 @@ describe("findPiSessions", () => {
 });
 
 describe("OpenAI-compatible classifier", () => {
+	it("resolves an endpoint URL from the environment", async () => {
+		const config: Config = {
+			classifier_model: "provider/model",
+			reviewer_model: "provider/reviewer",
+			model_endpoint: { base_url_env: "TEST_URL", api_key_env: "TEST_KEY" },
+			enabled_paths: [],
+			disabled_paths: [],
+			auto_review: "off",
+			review_launcher: "auto",
+			repo: {},
+		};
+		expect(() => classifierFromConfig(config, { TEST_KEY: "key" }, "config.yaml")).toThrow(
+			/Environment variable TEST_URL is not set \(model_endpoint.base_url_env\)/,
+		);
+		expect(() =>
+			classifierFromConfig(config, { TEST_KEY: "key", TEST_URL: "  " }, "config.yaml"),
+		).toThrow(/TEST_URL is not set/);
+		const fetchMock = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(
+				new Response(
+					JSON.stringify({ choices: [{ message: { content: JSON.stringify(decision()) } }] }),
+				),
+			);
+		try {
+			const classifier = classifierFromConfig(
+				config,
+				{ TEST_KEY: "key", TEST_URL: " https://example.test/v1/ " },
+				"config.yaml",
+			);
+			await classifier.classify({
+				exchange: {
+					anchor: "a",
+					ts: "",
+					user: "go with X",
+					assistant: "",
+					previousAssistant: "",
+					toolCalls: [],
+				},
+				signals: [],
+				adrs: [],
+				backlog: [],
+			});
+			expect(fetchMock.mock.calls[0]?.[0]).toBe("https://example.test/v1/chat/completions");
+		} finally {
+			fetchMock.mockRestore();
+		}
+	});
+
 	it("posts a JSON-mode chat request and parses the reply", async () => {
 		let seen: { url: string; init: RequestInit } | undefined;
 		const fetchFake = (async (url: string, init: RequestInit) => {

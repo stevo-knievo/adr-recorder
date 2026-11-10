@@ -97,6 +97,10 @@ enabled_paths: [] # e.g. ["~/work/**"], on even without an ADR folder
 disabled_paths: [] # always off here, wins over everything but /adr on
 ```
 
+To read the endpoint URL from an environment variable instead, replace `base_url`
+with `base_url_env: MY_API_BASE_URL`. Set that variable in the environment of
+the CLI or hook process. Use either `base_url` or `base_url_env`, not both.
+
 Pick a small, fast model for `classifier_model` (it answers once per
 candidate exchange and should take a second or two) and the strongest model
 you have for `reviewer_model`. Model ids are `provider/model` as pi knows

@@ -96,6 +96,16 @@ describe("loadConfig", () => {
 		expect(setup("").config.agent_models).toBeUndefined();
 	});
 
+	it("accepts an endpoint URL from an environment variable, but not both URL options", () => {
+		const envEndpoint = "model_endpoint:\n  base_url_env: TEST_URL\n  api_key_env: TEST_KEY\n";
+		const { config, errors } = setup(envEndpoint);
+		expect(errors).toEqual([]);
+		expect(config.model_endpoint).toEqual({ base_url_env: "TEST_URL", api_key_env: "TEST_KEY" });
+		const both = setup(`${envEndpoint}  base_url: https://example.test\n`);
+		expect(both.config.model_endpoint).toBeUndefined();
+		expect(both.errors[0]).toMatch(/either base_url or base_url_env, not both/);
+	});
+
 	it("reports broken YAML and incomplete endpoints instead of throwing", () => {
 		expect(setup("classifier_model: [unclosed\n").errors[0]).toMatch(/adr-recorder\.yaml/);
 		expect(setup("model_endpoint:\n  base_url: https://x\n").errors[0]).toMatch(/api_key_env/);

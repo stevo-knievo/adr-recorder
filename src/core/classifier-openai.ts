@@ -82,5 +82,14 @@ export function classifierFromConfig(
 		throw new Error(
 			`Environment variable ${ep.api_key_env} is not set (model_endpoint.api_key_env).`,
 		);
-	return createOpenAIClassifier({ baseUrl: ep.base_url, apiKey, model: endpointModelId(model) });
+	const baseUrl = ep.base_url_env ? env[ep.base_url_env]?.trim() : ep.base_url;
+	if (!baseUrl)
+		throw new Error(
+			`Environment variable ${ep.base_url_env} is not set (model_endpoint.base_url_env).`,
+		);
+	return createOpenAIClassifier({
+		baseUrl: baseUrl.replace(/\/+$/, ""),
+		apiKey,
+		model: endpointModelId(model),
+	});
 }
